@@ -28,6 +28,15 @@ apps/companion/src-tauri/target/
 
 # Logs
 *.log
+*.out.log
+*.err.log
+run-*.log
+dev-*.log
+server-*.log
+turbo-*.log
+
+# TypeScript incremental artifacts
+*.tsbuildinfo
 
 # Test coverage
 coverage/
