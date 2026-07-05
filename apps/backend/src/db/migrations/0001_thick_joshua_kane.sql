@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "uq_workspaces_user_device_path" ON "workspaces" USING btree ("user_id","device_id","canonical_path_hash");

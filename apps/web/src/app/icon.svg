@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" fill="none">
+  <rect width="96" height="96" rx="24" fill="#090B13"/>
+  <defs>
+    <linearGradient id="loom-gradient" x1="13" y1="20" x2="83" y2="77" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6F5BFF"/>
+      <stop offset="0.48" stop-color="#2B8DFF"/>
+      <stop offset="1" stop-color="#21E4C5"/>
+    </linearGradient>
+  </defs>
+  <g stroke="url(#loom-gradient)" stroke-linecap="round" stroke-linejoin="round" stroke-width="10">
+    <path d="M40 15 17 38a14 14 0 0 0 0 20l11 11a14 14 0 0 0 20 0l23-23"/>
+    <path d="m56 81 23-23a14 14 0 0 0 0-20L68 27a14 14 0 0 0-20 0L25 50"/>
+  </g>
+  <path d="m37 38 22 22" stroke="#8EDCFF" stroke-linecap="round" stroke-width="8"/>
+</svg>

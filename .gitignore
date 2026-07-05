@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+.next/
+.turbo/
+out/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/settings.json
+.idea/
+
+# Tauri build
+apps/companion/src-tauri/target/
+
+# Database
+*.db
+
+# Logs
+*.log
+
+# Test coverage
+coverage/
