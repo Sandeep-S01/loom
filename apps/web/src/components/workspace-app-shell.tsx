@@ -1,17 +1,37 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { startPairing } from "../lib/api";
+import {
+  createModel,
+  deleteModel,
+  disableFreeMarketplaceModel,
+  enableFreeMarketplaceModel,
+  getModelAnalytics,
+  getProvidersStatus,
+  listFreeMarketplaceModels,
+  listAvailableModels,
+  listModels,
+  logout,
+  startPairing,
+  syncFreeMarketplaceModels,
+  updateSession,
+  updateModel,
+} from "../lib/api";
+import { getConversationIdFromLocation } from "../lib/conversation-links";
 import type {
+  AvailableModelItem,
   CompanionStatusResponse,
   DashboardResponse,
+  FreeMarketplaceResponse,
+  ModelAnalyticsResponse,
+  ModelRegistryItem,
+  ProvidersResponse,
   SessionResponse,
   WorkspaceListItem,
 } from "../lib/types";
 import { renderWorkspaceSection } from "./workspace-section-renderer";
 import {
   SECTION_META,
-  SECTION_ORDER,
   type WorkspaceSection,
 } from "./workspace-sections";
 import {
@@ -24,36 +44,56 @@ import { ErrorState } from "./ui/error-state";
 import { Panel } from "./ui/panel";
 import { WorkspaceSidebar } from "./workspace-sidebar";
 import { ConnectionProvider } from "../context/connection-context";
+import {
+  getInitialSidebarExpandedState,
+  readStoredSidebarExpandedState,
+  SIDEBAR_EXPANDED_STORAGE_KEY,
+} from "./workspace-sidebar-preferences";
 
 interface WorkspaceAppShellProps {
   initialSection?: WorkspaceSection;
+  mode?: "workspace" | "admin";
 }
 
 const PINNED_CONVERSATIONS_KEY = "clm.workspace.pinned_conversations";
 const DESKTOP_MEDIA_QUERY = "(min-width: 1024px)";
+const WORKSPACE_SECTION_PATHS: Partial<Record<WorkspaceSection, string>> = {
+  dashboard: "/dashboard",
+  chat: "/chat",
+  workspaces: "/workspaces",
+  companion: "/companion",
+  settings: "/settings",
+};
 
 export function WorkspaceAppShell({
   initialSection = "chat",
+  mode = "workspace",
 }: WorkspaceAppShellProps) {
   const isMountedRef = useRef(true);
   const contextPanelId = useId();
   const [activeSection, setActiveSection] = useState<WorkspaceSection>(initialSection);
-  const [isPanelOpen, setIsPanelOpen] = useState(() => {
-    if (typeof window !== "undefined") {
-      const saved = window.localStorage.getItem("clm.workspace.sidebar_expanded");
-      return saved ? saved === "true" : true;
-    }
-    return true;
-  });
+  const [isPanelOpen, setIsPanelOpen] = useState(getInitialSidebarExpandedState);
   const [isMobilePanelOpen, setIsMobilePanelOpen] = useState(false);
   const [session, setSession] = useState<SessionResponse | null>(null);
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
+  const [availableChatModels, setAvailableChatModels] = useState<AvailableModelItem[]>([]);
+  const [registeredModels, setRegisteredModels] = useState<ModelRegistryItem[]>([]);
+  const [freeMarketplace, setFreeMarketplace] = useState<FreeMarketplaceResponse>({
+    models: [],
+    lastSyncedAt: null,
+  });
+  const [modelAnalytics, setModelAnalytics] = useState<ModelAnalyticsResponse>({
+    summary: [],
+    series: [],
+  });
+  const [providersStatus, setProvidersStatus] = useState<ProvidersResponse | null>(null);
   const [companionStatus, setCompanionStatus] =
     useState<CompanionStatusResponse | null>(null);
   const [workspaces, setWorkspaces] = useState<WorkspaceListItem[]>([]);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [companionStatusError, setCompanionStatusError] = useState<string | null>(null);
   const [workspacesError, setWorkspacesError] = useState<string | null>(null);
+  const [modelsError, setModelsError] = useState<string | null>(null);
   const [conversationsError, setConversationsError] = useState<string | null>(null);
   const [pinnedConversationIds, setPinnedConversationIds] = useState<string[]>([]);
   const [bootError, setBootError] = useState<string | null>(null);
@@ -64,12 +104,15 @@ export function WorkspaceAppShell({
   const [isDesktopViewport, setIsDesktopViewport] = useState(false);
   const [isStartingPairing, setIsStartingPairing] = useState(false);
   const [hasLoadedPinnedConversations, setHasLoadedPinnedConversations] = useState(false);
+  const [workspaceThemeClass, setWorkspaceThemeClass] = useState("workspace-theme-dark");
 
   const chat = useWorkspaceChatController({
     isMountedRef,
     onRefreshWorkspaceData: refreshWorkspaceData,
     pinnedConversationIds,
   });
+  const chatRef = useRef(chat);
+  chatRef.current = chat;
 
   useEffect(() => {
     return () => {
@@ -95,10 +138,41 @@ export function WorkspaceAppShell({
   }, [hasLoadedPinnedConversations, pinnedConversationIds]);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    setIsPanelOpen(readStoredSidebarExpandedState(window.localStorage));
+  }, []);
+
+  useEffect(() => {
     if (typeof window !== "undefined") {
-      window.localStorage.setItem("clm.workspace.sidebar_expanded", String(isPanelOpen));
+      window.localStorage.setItem(SIDEBAR_EXPANDED_STORAGE_KEY, String(isPanelOpen));
     }
   }, [isPanelOpen]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const applyTheme = () => {
+      const savedTheme = window.localStorage.getItem("clm.workspace.theme") ?? "dark";
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const useDarkTheme = savedTheme === "system" ? prefersDark : savedTheme === "dark";
+      window.document.documentElement.classList.remove("dark", "light");
+      setWorkspaceThemeClass(useDarkTheme ? "workspace-theme-dark" : "workspace-theme-light");
+    };
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+
+    applyTheme();
+    window.addEventListener("storage", applyTheme);
+    mediaQuery.addEventListener("change", applyTheme);
+    return () => {
+      window.removeEventListener("storage", applyTheme);
+      mediaQuery.removeEventListener("change", applyTheme);
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -126,6 +200,31 @@ export function WorkspaceAppShell({
     async function boot() {
       try {
         const bootstrapData = await loadWorkspaceShellBootstrapData();
+        if (mode === "admin" && bootstrapData.session.user.role !== "admin") {
+          throw new Error("Admin access required.");
+        }
+
+        const [modelsResponse, providersResponse] = await Promise.all([
+          listAvailableModels("chat"),
+          getProvidersStatus(),
+        ]);
+
+        const [registryResponse, analyticsResponse, marketplaceResponse] =
+          mode === "admin"
+            ? await Promise.all([
+                listModels({ includeDisabled: true }),
+                getModelAnalytics({
+                  from: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+                  to: new Date().toISOString(),
+                  granularity: "day",
+                }),
+                listFreeMarketplaceModels(),
+              ])
+            : [
+                { models: [] },
+                { summary: [], series: [] },
+                { models: [], lastSyncedAt: null },
+              ];
 
         if (!isMountedRef.current) {
           return;
@@ -140,11 +239,21 @@ export function WorkspaceAppShell({
         );
         applyBootSectionState(setWorkspaces, setWorkspacesError, bootstrapData.workspaces);
         setConversationsError(bootstrapData.conversations.error);
-        chat.hydrateConversations(bootstrapData.conversations.data);
+        setAvailableChatModels(modelsResponse.models);
+        setRegisteredModels(registryResponse.models);
+        setFreeMarketplace(marketplaceResponse);
+        setModelAnalytics(analyticsResponse);
+        setProvidersStatus(providersResponse);
+        chatRef.current.hydrateConversations(bootstrapData.conversations.data);
 
-        const firstConversation = bootstrapData.conversations.data[0];
-        if (firstConversation) {
-          await chat.selectConversation(firstConversation.id);
+        const requestedConversationId = getConversationIdFromLocation();
+        const initialConversation =
+          bootstrapData.conversations.data.find(
+            (conversation) => conversation.id === requestedConversationId,
+          ) ?? bootstrapData.conversations.data[0];
+
+        if (initialConversation) {
+          await chatRef.current.selectConversation(initialConversation.id);
         }
       } catch (error) {
         if (isMountedRef.current) {
@@ -160,10 +269,27 @@ export function WorkspaceAppShell({
     }
 
     void boot();
-  }, []);
+  }, [mode]);
 
   async function refreshWorkspaceData() {
-    const contextData = await loadWorkspaceShellContextData();
+    const [contextData, providersResponse, selectorResponse] = await Promise.all([
+      loadWorkspaceShellContextData(),
+      getProvidersStatus().catch(() => null),
+      listAvailableModels("chat").catch(() => null),
+    ]);
+
+    const [registryResponse, analyticsResponse, marketplaceResponse] =
+      mode === "admin"
+        ? await Promise.all([
+            listModels({ includeDisabled: true }).catch(() => null),
+            getModelAnalytics({
+              from: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+              to: new Date().toISOString(),
+              granularity: "day",
+            }).catch(() => null),
+            listFreeMarketplaceModels().catch(() => null),
+          ])
+        : [null, null, null];
 
     if (!isMountedRef.current) {
       return;
@@ -176,7 +302,39 @@ export function WorkspaceAppShell({
       contextData.companionStatus,
     );
     applyRefreshSectionState(setWorkspaces, setWorkspacesError, contextData.workspaces);
+    if (providersResponse) {
+      setProvidersStatus(providersResponse);
+    }
+    if (selectorResponse) {
+      setAvailableChatModels(selectorResponse.models);
+    }
+    if (registryResponse) {
+      setRegisteredModels(registryResponse.models);
+      setModelsError(null);
+    }
+    if (analyticsResponse) {
+      setModelAnalytics(analyticsResponse);
+    }
+    if (marketplaceResponse) {
+      setFreeMarketplace(marketplaceResponse);
+    }
   }
+
+  const refreshWorkspaceDataRef = useRef(refreshWorkspaceData);
+  refreshWorkspaceDataRef.current = refreshWorkspaceData;
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handleFocus = () => {
+      void refreshWorkspaceDataRef.current();
+    };
+
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
+  }, []);
 
   async function handleCreateConversation() {
     const created = await chat.createChatConversation();
@@ -223,31 +381,141 @@ export function WorkspaceAppShell({
     );
   }
 
+  async function handleLogout() {
+    await logout();
+    if (typeof window !== "undefined") {
+      window.location.assign("/");
+    }
+  }
+
+  async function handleUpdateSession(input: { displayName: string }) {
+    const response = await updateSession(input);
+    if (isMountedRef.current) {
+      setSession(response);
+    }
+
+    return response;
+  }
+
+  function removePinnedConversation(conversationId: string) {
+    setPinnedConversationIds((current) =>
+      current.filter((item) => item !== conversationId),
+    );
+  }
+
   function handleSelectSection(section: WorkspaceSection) {
     const isMobileViewport =
       typeof window !== "undefined" &&
       window.matchMedia("(max-width: 1023px)").matches;
+    const nextPath = WORKSPACE_SECTION_PATHS[section];
+
+    if (typeof window !== "undefined" && mode === "workspace" && nextPath) {
+      const currentPath = window.location.pathname;
+      if (currentPath !== nextPath) {
+        window.history.pushState(null, "", nextPath);
+      }
+    }
 
     setActiveSection((current) => {
       if (current === section) {
         if (isMobileViewport) {
-          setIsPanelOpen(true);
-          setIsMobilePanelOpen((open) => !open);
+          setIsMobilePanelOpen(false);
           return current;
         }
 
-        setIsPanelOpen((open) => !open);
         return current;
       }
 
-      setIsPanelOpen(true);
-      setIsMobilePanelOpen(isMobileViewport);
+      if (isMobileViewport) {
+        setIsMobilePanelOpen(false);
+      }
       return section;
     });
   }
 
   function closeMobilePanel() {
     setIsMobilePanelOpen(false);
+  }
+
+  async function handleCreateModel(payload: Parameters<typeof createModel>[0]) {
+    try {
+      setModelsError(null);
+      await createModel(payload);
+      await refreshWorkspaceData();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to add model.";
+      setModelsError(message);
+      throw error;
+    }
+  }
+
+  async function handleUpdateModel(
+    modelId: string,
+    payload: Parameters<typeof updateModel>[1],
+  ) {
+    try {
+      setModelsError(null);
+      await updateModel(modelId, payload);
+      await refreshWorkspaceData();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to update model.";
+      setModelsError(message);
+      throw error;
+    }
+  }
+
+  async function handleDeleteModel(modelId: string) {
+    try {
+      setModelsError(null);
+      await deleteModel(modelId);
+      await refreshWorkspaceData();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to delete model.";
+      setModelsError(message);
+      throw error;
+    }
+  }
+
+  async function handleSyncFreeMarketplace() {
+    try {
+      setModelsError(null);
+      const response = await syncFreeMarketplaceModels();
+      setFreeMarketplace(response);
+      await refreshWorkspaceData();
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to refresh free model marketplace.";
+      setModelsError(message);
+      throw error;
+    }
+  }
+
+  async function handleEnableFreeMarketplaceModel(modelId: string) {
+    try {
+      setModelsError(null);
+      await enableFreeMarketplaceModel(modelId);
+      await refreshWorkspaceData();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to enable free model.";
+      setModelsError(message);
+      throw error;
+    }
+  }
+
+  async function handleDisableFreeMarketplaceModel(modelId: string) {
+    try {
+      setModelsError(null);
+      await disableFreeMarketplaceModel(modelId);
+      await refreshWorkspaceData();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to disable free model.";
+      setModelsError(message);
+      throw error;
+    }
   }
 
   const connectionState = {
@@ -261,18 +529,23 @@ export function WorkspaceAppShell({
     refresh: refreshWorkspaceData,
   };
 
+  const sectionOrder =
+    mode === "admin"
+      ? (["models", "activity", "settings"] as WorkspaceSection[])
+      : (["dashboard", "chat", "workspaces", "companion", "settings"] as WorkspaceSection[]);
   const sectionMeta = SECTION_META[activeSection];
   const showMobilePanel = isPanelOpen && isMobilePanelOpen;
   const isContextPanelVisible = isDesktopViewport ? isPanelOpen : showMobilePanel;
-  const sessionChipLabel = session?.user.displayName ?? "Loading session";
   const companionChipLabel = connectionState.hasError
-    ? "Companion status unavailable"
+    ? "Status unavailable"
     : connectionState.connected
       ? "Companion online"
       : "Companion offline";
-  const modelChipLabel = connectionState.hasError
-    ? "Model status unavailable"
-    : `${connectionState.eligibleCount} eligible models`;
+  const mobileStatusLabel = connectionState.hasError
+    ? "Status unavailable"
+    : connectionState.connected
+      ? `${connectionState.eligibleCount} models ready`
+      : "Companion offline";
   const sectionRender = renderWorkspaceSection({
     activeConversation: chat.activeConversation,
     activeConversationId: chat.activeConversationId,
@@ -284,6 +557,8 @@ export function WorkspaceAppShell({
     conversationSearch: chat.conversationSearch,
     dashboard,
     draftMessage: chat.draftMessage,
+    availableModels: availableChatModels,
+    providersStatus,
     filteredConversations: chat.filteredConversations,
     isLoadingMessages: chat.isLoadingMessages,
     isSending: chat.isSending,
@@ -295,9 +570,18 @@ export function WorkspaceAppShell({
       workspaces: workspacesError,
     },
     messages: chat.messages,
+    pendingModelId: chat.pendingModelId,
     onConversationSearchChange: chat.setConversationSearch,
     onCreateConversation: handleCreateConversation,
+    onCreateModel: handleCreateModel,
+    onDeleteModel: handleDeleteModel,
+    onDeleteConversation: async (conversationId) => {
+      removePinnedConversation(conversationId);
+      await chat.deleteConversationRecord(conversationId);
+    },
     onDraftMessageChange: chat.setDraftMessage,
+    onUpdateModel: handleUpdateModel,
+    onRenameConversation: chat.renameConversationRecord,
     onSelectConversation: async (conversationId) => {
       const selected = await chat.selectConversation(conversationId);
       if (selected) {
@@ -306,20 +590,36 @@ export function WorkspaceAppShell({
     },
     onSend: chat.send,
     onStartPairing: handleStartPairing,
+    onUpdateSession: handleUpdateSession,
+    onLogout: handleLogout,
     onTogglePinnedConversation: togglePinnedConversation,
     pairingCode,
     pairingError,
     pairingExpiresAt,
     pinnedConversationIds,
     providerSwitchNote: chat.providerSwitchNote,
+    freeMarketplace,
+    onSyncFreeMarketplace: handleSyncFreeMarketplace,
+    onEnableFreeMarketplaceModel: handleEnableFreeMarketplaceModel,
+    onDisableFreeMarketplaceModel: handleDisableFreeMarketplaceModel,
+    modelAnalytics,
+    modelsError,
+    registeredModels,
     session,
     workspaces,
     onRefresh: refreshWorkspaceData,
+    onNavigateSection: handleSelectSection,
   });
 
   return (
     <ConnectionProvider value={connectionState}>
-      <div className="flex h-screen w-screen overflow-hidden bg-[color:var(--color-bg-base)] text-text-primary">
+      <div
+        className={[
+          "flex h-dvh w-full overflow-hidden bg-[color:var(--color-bg-base)] text-text-primary",
+          workspaceThemeClass,
+        ].join(" ")}
+        data-workspace-shell
+      >
         <WorkspaceSidebar
           activeSection={activeSection}
           isCollapsed={!isPanelOpen}
@@ -331,7 +631,8 @@ export function WorkspaceAppShell({
           session={session}
           dashboard={dashboard}
           sectionMeta={SECTION_META}
-          sectionOrder={SECTION_ORDER}
+          sectionOrder={sectionOrder}
+          mode={mode}
           conversationSearch={chat.conversationSearch}
           activeConversationId={chat.activeConversationId}
           onConversationSearchChange={chat.setConversationSearch}
@@ -344,18 +645,24 @@ export function WorkspaceAppShell({
             }
           }}
           onTogglePinnedConversation={togglePinnedConversation}
+          onRenameConversation={chat.renameConversationRecord}
+          onDeleteConversation={async (conversationId) => {
+            removePinnedConversation(conversationId);
+            await chat.deleteConversationRecord(conversationId);
+          }}
           pinnedConversationIds={pinnedConversationIds}
           conversationError={conversationsError}
-          panelBody={sectionRender.panelBody}
+          onLogout={handleLogout}
         />
 
-        <main className="flex h-screen min-w-0 flex-1 flex-col overflow-hidden">
-          <header className="ui-shell-header flex h-14 flex-shrink-0 items-center justify-between px-6 backdrop-blur-sm">
+        <main className="flex h-dvh min-w-0 flex-1 flex-col overflow-hidden">
+          <header className="ui-shell-header flex h-16 flex-shrink-0 items-center justify-between gap-3 px-4 sm:px-6">
             <div className="flex items-center gap-3">
               <button
+                aria-label="Open navigation"
                 aria-controls={contextPanelId}
                 aria-expanded={showMobilePanel}
-                className="rounded-lg border border-white/5 bg-white/[0.02] p-1.5 text-text-secondary transition hover:border-white/10 hover:text-text-primary lg:hidden"
+                className="rounded-lg border border-[color:var(--color-border-subtle)] bg-[color:var(--color-surface-panel)] p-1.5 text-text-secondary transition hover:border-[color:var(--color-border-strong)] hover:text-text-primary lg:hidden"
                 onClick={() => {
                   setIsPanelOpen(true);
                   setIsMobilePanelOpen(true);
@@ -366,40 +673,47 @@ export function WorkspaceAppShell({
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
                 </svg>
               </button>
-              <h1 className="text-xs font-semibold uppercase tracking-wider text-text-secondary select-none lg:block hidden">
-                {sectionMeta.label}
-              </h1>
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted lg:hidden">
+                  Workspace
+                </p>
+                <h1 className="select-none font-headline text-lg font-medium tracking-[-0.03em] text-text-primary sm:text-xl">
+                  {sectionMeta.label}
+                </h1>
+              </div>
             </div>
 
-            <div className="flex items-center gap-4 text-[11px] font-medium text-text-secondary">
-              {/* Session */}
-              <div className="flex items-center gap-1.5">
-                <span className="h-1.5 w-1.5 rounded-full bg-accent" />
-                <span>{sessionChipLabel}</span>
-              </div>
-              <span className="text-white/5">|</span>
-              {/* Companion Status */}
-              <div className="flex items-center gap-1.5">
+            <div className="hidden items-center font-label text-[12px] font-medium text-text-secondary lg:flex">
+              <div className="inline-flex items-center gap-2 rounded-full border border-[color:var(--color-border-subtle)] bg-[color:var(--color-surface-panel)] px-3 py-1.5">
                 <span className={`h-1.5 w-1.5 rounded-full ${
                   connectionState.hasError
-                    ? "bg-[#64748b]"
+                    ? "bg-text-muted"
                     : connectionState.connected
                       ? "bg-state-healthy"
                       : "bg-state-blocked"
                 }`} />
                 <span>{companionChipLabel}</span>
               </div>
-              <span className="text-white/5">|</span>
-              {/* Eligible Models */}
-              <div className="flex items-center gap-1.5">
-                <span className={`h-1.5 w-1.5 rounded-full ${connectionState.hasError ? "bg-state-blocked" : "bg-state-info"}`} />
-                <span>{modelChipLabel}</span>
+            </div>
+
+            <div className="lg:hidden">
+              <div className="inline-flex max-w-[48vw] items-center gap-2 rounded-full border border-[color:var(--color-border-subtle)] bg-[color:var(--color-surface-panel)] px-3 py-1.5 text-[11px] font-medium text-text-secondary">
+                <span className={`h-1.5 w-1.5 rounded-full ${
+                  connectionState.hasError
+                    ? "bg-text-muted"
+                    : connectionState.connected
+                      ? "bg-state-healthy"
+                      : "bg-state-blocked"
+                }`} />
+                <span className="truncate">{mobileStatusLabel}</span>
               </div>
             </div>
           </header>
 
-          {bootError ? (
-            <div className="flex-1 overflow-y-auto px-6 py-6">
+          {bootError === "Authentication required." ? (
+            <AuthRedirectPanel />
+          ) : bootError ? (
+            <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-6">
               <ErrorState
                 className="animate-section-change"
                 message={bootError}
@@ -409,12 +723,12 @@ export function WorkspaceAppShell({
           ) : null}
 
           {!bootError && isBooting ? (
-            <div className="flex-1 overflow-y-auto px-6 py-6">
+            <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-6">
               <Panel className="animate-section-change p-5" eyebrow="Loading" title="Workspace">
                 <div className="space-y-3">
-                  <div className="h-3 w-1/3 rounded bg-white/10" />
-                  <div className="h-3 w-2/3 rounded bg-white/5" />
-                  <div className="h-3 w-1/2 rounded bg-white/5" />
+                  <div className="h-3 w-1/3 rounded bg-[color:var(--color-bg-hover)]" />
+                  <div className="h-3 w-2/3 rounded bg-[color:var(--color-bg-active)]" />
+                  <div className="h-3 w-1/2 rounded bg-[color:var(--color-bg-active)]" />
                 </div>
               </Panel>
             </div>
@@ -428,6 +742,27 @@ export function WorkspaceAppShell({
         </main>
       </div>
     </ConnectionProvider>
+  );
+}
+
+function AuthRedirectPanel() {
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const next = encodeURIComponent(`${window.location.pathname}${window.location.search}`);
+    window.location.assign(`/login?next=${next}`);
+  }, []);
+
+  return (
+    <div className="flex flex-1 items-center justify-center px-6 py-8">
+      <Panel className="w-full max-w-sm p-5" eyebrow="Authentication" title="Redirecting">
+        <p className="text-sm text-text-secondary">
+          Please sign in to continue.
+        </p>
+      </Panel>
+    </div>
   );
 }
 

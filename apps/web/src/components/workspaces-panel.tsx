@@ -9,6 +9,7 @@ import { Panel } from "./ui/panel";
 import { StatusPill } from "./ui/status-pill";
 
 interface WorkspacesPanelProps {
+  onRequestPairing?: () => void;
   workspaces: WorkspaceListItem[];
 }
 
@@ -23,8 +24,9 @@ function statusTone(status: WorkspaceListItem["status"]) {
   }
 }
 
-export function WorkspacesPanel({ workspaces }: WorkspacesPanelProps) {
+export function WorkspacesPanel({ onRequestPairing, workspaces }: WorkspacesPanelProps) {
   const [syncingMap, setSyncingMap] = useState<Record<string, boolean>>({});
+  const [actionMessageMap, setActionMessageMap] = useState<Record<string, string | null>>({});
 
   const handleSync = (id: string) => {
     setSyncingMap((prev) => ({ ...prev, [id]: true }));
@@ -33,11 +35,26 @@ export function WorkspacesPanel({ workspaces }: WorkspacesPanelProps) {
     }, 1500);
   };
 
+  const handleUnlink = (id: string) => {
+    setActionMessageMap((prev) => ({
+      ...prev,
+      [id]: "Open the paired desktop companion to remove this folder from the local machine.",
+    }));
+  };
+
   return (
-    <DashboardCard eyebrow="Workspaces" title="Registered folders">
+    <DashboardCard eyebrow="Workspaces" title="Folders">
       {workspaces.length === 0 ? (
         <EmptyState
-          description="No registered workspaces yet. Pair the desktop companion, then choose a folder."
+          action={
+            onRequestPairing ? (
+              <Button onClick={onRequestPairing} type="button" variant="primary">
+                Pair companion
+              </Button>
+            ) : undefined
+          }
+          className="min-h-[180px]"
+          description="Pair the companion, then choose a local folder."
           title="No workspaces yet"
         />
       ) : (
@@ -61,12 +78,23 @@ export function WorkspacesPanel({ workspaces }: WorkspacesPanelProps) {
                         {workspace.status}
                       </StatusPill>
                     </div>
-                    <p className="mt-2 font-mono text-xs text-text-secondary truncate bg-black/20 p-2 rounded-lg border border-white/5">
+                    <p className="mt-2 font-mono text-xs text-text-secondary truncate bg-[color:var(--color-surface-panel-muted)] p-2 rounded-lg border border-[color:var(--color-border-subtle)]">
                       {workspace.displayPathHint ?? "Path hint unavailable"}
                     </p>
-                    <p className="mt-2 text-[10px] text-text-muted">
-                      Machine: <span className="font-mono text-text-secondary">{workspace.machineId}</span>
-                    </p>
+                    {actionMessageMap[workspace.id] ? (
+                      <p className="mt-2 rounded-lg border border-[color:var(--color-border-subtle)] bg-[color:var(--color-surface-panel-muted)] px-3 py-2 text-[11px] leading-relaxed text-text-secondary">
+                        {actionMessageMap[workspace.id]}
+                        {onRequestPairing ? (
+                          <button
+                            className="ml-2 font-semibold text-accent transition hover:text-text-primary"
+                            onClick={onRequestPairing}
+                            type="button"
+                          >
+                            Pair companion
+                          </button>
+                        ) : null}
+                      </p>
+                    ) : null}
                   </div>
                   
                   <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-2 shrink-0">
@@ -78,12 +106,12 @@ export function WorkspacesPanel({ workspaces }: WorkspacesPanelProps) {
                       type="button"
                       variant="secondary"
                     >
-                      {isSyncing ? "Syncing..." : "Sync indexing"}
+                      {isSyncing ? "Syncing..." : "Sync"}
                     </Button>
                     
                     <Button
-                      className="text-state-blocked hover:text-white"
-                      onClick={() => alert("Unlinking folders requires using the desktop companion client.")}
+                      className="text-state-blocked hover:bg-state-blocked/10 hover:text-state-blocked"
+                      onClick={() => handleUnlink(workspace.id)}
                       size="sm"
                       type="button"
                       variant="ghost"

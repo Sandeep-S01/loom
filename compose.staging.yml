@@ -1,0 +1,152 @@
+name: loom-staging
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-loom}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-loom}
+    volumes:
+      - staging_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks: [data]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD is required}"]
+    volumes:
+      - staging_redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    networks: [data]
+
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+      target: build
+    image: ${BACKEND_IMAGE:-loom-backend:staging}-migration
+    command: ["pnpm", "--filter", "@clm/backend", "db:migrate"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [data]
+    profiles: [tools]
+
+  bootstrap:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+      target: build
+    image: ${BACKEND_IMAGE:-loom-backend:staging}-migration
+    command: ["pnpm", "--filter", "@clm/backend", "db:seed"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      DEFAULT_USER_EMAIL: ${DEFAULT_USER_EMAIL:?DEFAULT_USER_EMAIL is required}
+      DEFAULT_USER_PASSWORD: ${DEFAULT_USER_PASSWORD:?DEFAULT_USER_PASSWORD is required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [data]
+    profiles: [tools]
+
+  backend:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+    image: ${BACKEND_IMAGE:-loom-backend:staging}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      BACKEND_PORT: 3001
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
+      FRONTEND_URL: ${PUBLIC_WEB_URL:?PUBLIC_WEB_URL is required}
+      ALLOW_DEV_SESSION: "false"
+      DEFAULT_USER_EMAIL: ${DEFAULT_USER_EMAIL:?DEFAULT_USER_EMAIL is required}
+      DEFAULT_USER_PASSWORD: ${DEFAULT_USER_PASSWORD:?DEFAULT_USER_PASSWORD is required}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      PROVIDER_KEY_ENCRYPTION_SECRET: ${PROVIDER_KEY_ENCRYPTION_SECRET:?PROVIDER_KEY_ENCRYPTION_SECRET is required}
+      COMPANION_PAIRING_SECRET: ${COMPANION_PAIRING_SECRET:?COMPANION_PAIRING_SECRET is required}
+      METRICS_ENABLED: "true"
+      METRICS_TOKEN: ${METRICS_TOKEN:?METRICS_TOKEN is required}
+      RETENTION_CLEANUP_ON_STARTUP: "true"
+      RETENTION_CLEANUP_INTERVAL_MS: ${RETENTION_CLEANUP_INTERVAL_MS:-21600000}
+      RETENTION_CLEANUP_BATCH_SIZE: ${RETENTION_CLEANUP_BATCH_SIZE:-1000}
+      MODEL_USAGE_RETENTION_DAYS: ${MODEL_USAGE_RETENTION_DAYS:-30}
+      PROVIDER_ATTEMPT_RETENTION_DAYS: ${PROVIDER_ATTEMPT_RETENTION_DAYS:-30}
+      AUDIT_EVENT_RETENTION_DAYS: ${AUDIT_EVENT_RETENTION_DAYS:-90}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "${BACKEND_BIND_ADDRESS:-127.0.0.1}:${BACKEND_HOST_PORT:-3001}:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/api/v1/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks: [app, data]
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        BACKEND_URL: http://backend:3001
+    image: ${WEB_IMAGE:-loom-web:staging}
+    restart: unless-stopped
+    ports:
+      - "${WEB_BIND_ADDRESS:-0.0.0.0}:${WEB_HOST_PORT:-8080}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks: [app]
+
+  prometheus:
+    image: prom/prometheus:v3.4.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    volumes:
+      - ./deployment/runtime/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deployment/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - staging_prometheus_data:/prometheus
+    ports:
+      - "${PROMETHEUS_BIND_ADDRESS:-127.0.0.1}:${PROMETHEUS_HOST_PORT:-9090}:9090"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks: [app]
+    profiles: [observability]
+
+networks:
+  app:
+  data:
+    internal: true
+
+volumes:
+  staging_postgres_data:
+  staging_redis_data:
+  staging_prometheus_data:

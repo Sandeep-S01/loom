@@ -3,10 +3,13 @@
 import { useMemo, useRef, useState, type RefObject } from "react";
 import {
   createConversation,
+  deleteConversation,
   getConversationMessages,
   listConversations,
+  renameConversation,
   sendMessage,
 } from "../lib/api";
+import { setConversationIdInLocation } from "../lib/conversation-links";
 import type { ConversationListItem, ConversationMessagesResponse } from "../lib/types";
 import {
   applySendResponse,
@@ -28,6 +31,10 @@ export function useWorkspaceChatController({
   const conversationRequestOrderRef = useRef(0);
   const requestedConversationIdRef = useRef<string | null>(null);
   const sendLockRef = useRef(false);
+  const pendingSubmissionRef = useRef<{
+    fingerprint: string;
+    idempotencyKey: string;
+  } | null>(null);
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
   const [conversationSearch, setConversationSearch] = useState("");
   const [draftMessage, setDraftMessage] = useState("");
@@ -40,6 +47,7 @@ export function useWorkspaceChatController({
   const [providerSwitchNote, setProviderSwitchNote] = useState<string | null>(null);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [pendingModelId, setPendingModelId] = useState<string | null>(null);
 
   const filteredConversations = useMemo(() => {
     const term = conversationSearch.trim().toLowerCase();
@@ -66,6 +74,7 @@ export function useWorkspaceChatController({
   function setRequestedConversationId(conversationId: string | null) {
     requestedConversationIdRef.current = conversationId;
     setActiveConversationId(conversationId);
+    setConversationIdInLocation(conversationId);
   }
 
   function resetConversationDraftState() {
@@ -165,6 +174,87 @@ export function useWorkspaceChatController({
     return conversationId !== null;
   }
 
+  function clearActiveConversationState() {
+    setRequestedConversationId(null);
+    setActiveConversation(null);
+    resetConversationDraftState();
+  }
+
+  async function renameConversationRecord(conversationId: string, title: string) {
+    setChatError(null);
+
+    try {
+      const response = await renameConversation(conversationId, title);
+
+      if (!isMountedRef.current) {
+        return;
+      }
+
+      setConversations((current) =>
+        current.map((item) =>
+          item.id === conversationId ? response.conversation : item,
+        ),
+      );
+
+      if (activeConversationId === conversationId) {
+        setActiveConversation((current) =>
+          current
+            ? {
+                ...current,
+                title: response.conversation.title,
+              }
+            : current,
+        );
+      }
+
+      await onRefreshWorkspaceData();
+    } catch (error) {
+      if (isMountedRef.current) {
+        setChatError(
+          error instanceof Error ? error.message : "Failed to rename conversation.",
+        );
+      }
+
+      throw error;
+    }
+  }
+
+  async function deleteConversationRecord(conversationId: string) {
+    setChatError(null);
+
+    try {
+      await deleteConversation(conversationId);
+
+      if (!isMountedRef.current) {
+        return;
+      }
+
+      const nextConversations = conversations.filter((item) => item.id !== conversationId);
+      setConversations(nextConversations);
+
+      if (activeConversationId === conversationId) {
+        const nextConversationId = nextConversations[0]?.id ?? null;
+
+        if (nextConversationId) {
+          clearActiveConversationState();
+          await selectConversation(nextConversationId);
+        } else {
+          clearActiveConversationState();
+        }
+      }
+
+      await onRefreshWorkspaceData();
+    } catch (error) {
+      if (isMountedRef.current) {
+        setChatError(
+          error instanceof Error ? error.message : "Failed to delete conversation.",
+        );
+      }
+
+      throw error;
+    }
+  }
+
   async function ensureConversation() {
     if (activeConversationId) {
       return activeConversationId;
@@ -173,7 +263,11 @@ export function useWorkspaceChatController({
     return createConversationRecord();
   }
 
-  async function send(text: string) {
+  async function send(input: {
+    text: string;
+    modelId: string | null;
+    images?: Extract<ConversationMessagesResponse["messages"][number]["content"][number], { type: "image" }>[];
+  }) {
     if (sendLockRef.current) {
       return;
     }
@@ -187,45 +281,110 @@ export function useWorkspaceChatController({
       setChatError(null);
       setCapacityBlocked(false);
       setProviderSwitchNote(null);
+      setPendingModelId(input.modelId);
 
       sendingConversationId = await ensureConversation();
       if (!sendingConversationId || !isMountedRef.current) {
         return;
       }
 
+      const { text, modelId, images = [] } = input;
+      const content: ConversationMessagesResponse["messages"][number]["content"] = [
+        ...(text ? [{ type: "text" as const, text }] : []),
+        ...images,
+      ];
       const createdAt = new Date().toISOString();
       const nextOptimisticId = `local-${Date.now()}`;
       optimisticId = nextOptimisticId;
+      const submissionFingerprint = JSON.stringify({
+        conversationId: sendingConversationId,
+        modelId,
+        text,
+        images: images.map((image) => ({
+          filename: image.filename,
+          mimeType: image.mimeType,
+          size: image.size,
+        })),
+      });
+      const idempotencyKey =
+        pendingSubmissionRef.current?.fingerprint === submissionFingerprint
+          ? pendingSubmissionRef.current.idempotencyKey
+          : crypto.randomUUID();
+      pendingSubmissionRef.current = {
+        fingerprint: submissionFingerprint,
+        idempotencyKey,
+      };
 
       if (requestedConversationIdRef.current === sendingConversationId) {
         setMessages((current) => [
           ...current,
           buildUserTextMessage({
+            content,
             createdAt,
             id: nextOptimisticId,
             text,
           }),
         ]);
       }
+      setDraftMessage("");
 
       const response = await sendMessage(sendingConversationId, {
-        content: [{ type: "text", text }],
+        content,
+        idempotencyKey,
+        modelId: modelId ?? undefined,
       });
+      pendingSubmissionRef.current = null;
 
       if (!isMountedRef.current) {
         return;
       }
 
       if (requestedConversationIdRef.current === sendingConversationId) {
+        if (!response.assistantMessage) {
+          setMessages((current) => [
+            ...current.filter((m) => m.id !== nextOptimisticId),
+            {
+              id: response.userMessage.id,
+              role: "user",
+              content,
+              createdAt,
+            },
+          ]);
+
+          if (response.capacityBlocked) {
+            setCapacityBlocked(true);
+          }
+
+          setChatError(
+            response.error?.message ?? "No model was able to respond to this message.",
+          );
+
+          try {
+            const conversationsResponse = await listConversations();
+            if (isMountedRef.current) {
+              setConversations(conversationsResponse.conversations);
+              await onRefreshWorkspaceData();
+            }
+          } catch {
+            // Keep the clearer model error visible; the next focus refresh will resync recents.
+          }
+
+          return;
+        }
+
         const assistantId = response.assistantMessage?.id ?? `local-assistant-${Date.now()}`;
-        const fullText = response.assistantMessage?.content[0]?.text ?? "";
+        const fullText =
+          response.assistantMessage?.content
+            .filter((item) => item.type === "text")
+            .map((item) => item.text)
+            .join("\n") ?? "";
 
         setMessages((current) => [
           ...current.filter((m) => m.id !== nextOptimisticId),
           {
             id: response.userMessage.id,
             role: "user",
-            content: [{ type: "text", text }],
+            content,
             createdAt,
           },
           {
@@ -240,7 +399,9 @@ export function useWorkspaceChatController({
         setDraftMessage("");
 
         if (response.providerSwitched?.switched) {
-          setProviderSwitchNote("Response continued after switching models.");
+          setProviderSwitchNote(
+            `Selected model unavailable. Response switched from ${response.providerSwitched.fromModelName} to ${response.providerSwitched.toModelName}.`,
+          );
         }
 
         if (response.capacityBlocked) {
@@ -308,12 +469,14 @@ export function useWorkspaceChatController({
         setChatError(
           error instanceof Error ? error.message : "Failed to send message.",
         );
+        setDraftMessage(input.text);
       }
     } finally {
       sendLockRef.current = false;
 
       if (isMountedRef.current) {
         setIsSending(false);
+        setPendingModelId(null);
       }
     }
   }
@@ -326,13 +489,16 @@ export function useWorkspaceChatController({
     conversationSearch,
     conversations,
     createChatConversation,
+    deleteConversationRecord,
     draftMessage,
     filteredConversations,
     hydrateConversations,
     isLoadingMessages,
     isSending,
     messages,
+    pendingModelId,
     providerSwitchNote,
+    renameConversationRecord,
     selectConversation,
     send,
     setConversationSearch,

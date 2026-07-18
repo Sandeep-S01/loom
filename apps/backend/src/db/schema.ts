@@ -17,6 +17,7 @@ import {
   jsonb,
   index,
   uniqueIndex,
+  date,
 } from "drizzle-orm/pg-core";
 
 // ─── 2.1 users ────────────────────────────────
@@ -25,10 +26,30 @@ export const users = pgTable("users", {
   email: varchar("email", { length: 255 }).notNull().unique(),
   displayName: varchar("display_name", { length: 255 }).notNull(),
   passwordHash: varchar("password_hash", { length: 255 }).notNull(),
+  role: varchar("role", { length: 20 }).notNull().default("customer"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
 });
+
+export const browserSessions = pgTable(
+  "browser_sessions",
+  {
+    id: varchar("id", { length: 50 }).primaryKey(),
+    userId: varchar("user_id", { length: 50 })
+      .notNull()
+      .references(() => users.id),
+    tokenHash: varchar("token_hash", { length: 64 }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("uq_browser_sessions_token_hash").on(table.tokenHash),
+    index("idx_browser_sessions_user_expires").on(table.userId, table.expiresAt),
+  ],
+);
 
 // ─── 2.2 devices ──────────────────────────────
 export const devices = pgTable(
@@ -41,6 +62,7 @@ export const devices = pgTable(
     deviceType: varchar("device_type", { length: 30 }).notNull(), // 'browser' | 'desktop_companion'
     machineLabel: varchar("machine_label", { length: 255 }),
     machineFingerprintHash: varchar("machine_fingerprint_hash", { length: 255 }),
+    machineSessionTokenHash: varchar("machine_session_token_hash", { length: 255 }),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -54,6 +76,9 @@ export const providers = pgTable("providers", {
   id: varchar("id", { length: 50 }).primaryKey(),
   name: varchar("name", { length: 100 }).notNull(),
   baseType: varchar("base_type", { length: 50 }).notNull(),
+  driverKey: varchar("driver_key", { length: 50 }).notNull().default("openrouter"),
+  defaultSecretRef: varchar("default_secret_ref", { length: 255 }),
+  metadataJson: jsonb("metadata_json"),
   status: varchar("status", { length: 20 }).notNull().default("active"), // 'active' | 'degraded' | 'disabled'
   priorityRank: integer("priority_rank").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -61,6 +86,33 @@ export const providers = pgTable("providers", {
 });
 
 // ─── 2.4 models ───────────────────────────────
+export const providerCredentials = pgTable(
+  "provider_credentials",
+  {
+    id: varchar("id", { length: 50 }).primaryKey(),
+    providerId: varchar("provider_id", { length: 50 })
+      .notNull()
+      .references(() => providers.id),
+    secretRef: varchar("secret_ref", { length: 255 }).notNull(),
+    status: varchar("status", { length: 20 }).notNull().default("unchecked"),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
+    lastFailureAt: timestamp("last_failure_at", { withTimezone: true }),
+    lastFailureCode: varchar("last_failure_code", { length: 80 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("uq_provider_credentials_provider_secret").on(
+      table.providerId,
+      table.secretRef,
+    ),
+    index("idx_provider_credentials_provider").on(table.providerId),
+    index("idx_provider_credentials_status").on(table.status),
+    index("idx_provider_credentials_last_checked").on(table.lastCheckedAt),
+  ],
+);
+
 export const models = pgTable(
   "models",
   {
@@ -76,11 +128,33 @@ export const models = pgTable(
     contextWindow: integer("context_window").notNull().default(4096),
     priorityRank: integer("priority_rank").notNull().default(0),
     active: boolean("active").notNull().default(true),
+    adminStatus: varchar("admin_status", { length: 20 }).notNull().default("active"),
+    runtimeStatus: varchar("runtime_status", { length: 30 }).notNull().default("healthy"),
+    secretRef: varchar("secret_ref", { length: 255 }),
+    cooldownUntil: timestamp("cooldown_until", { withTimezone: true }),
+    requestsPerMinuteLimit: integer("requests_per_minute_limit"),
+    tokensPerDayLimit: integer("tokens_per_day_limit"),
+    tokensUsedToday: integer("tokens_used_today").notNull().default(0),
+    tokensUsedDayBucket: date("tokens_used_day_bucket"),
+    consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+    lastFailureCode: varchar("last_failure_code", { length: 40 }),
+    lastFailureAt: timestamp("last_failure_at", { withTimezone: true }),
+    lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
+    costInputPer1mUsdMicros: integer("cost_input_per_1m_usd_micros"),
+    costOutputPer1mUsdMicros: integer("cost_output_per_1m_usd_micros"),
+    sourceType: varchar("source_type", { length: 30 }).notNull().default("manual"),
+    costTier: varchar("cost_tier", { length: 20 }).notNull().default("unknown"),
+    marketplaceStatus: varchar("marketplace_status", { length: 30 }),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+    lastTestedAt: timestamp("last_tested_at", { withTimezone: true }),
+    catalogMetadataJson: jsonb("catalog_metadata_json"),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
     index("idx_models_provider_active").on(table.providerId, table.active),
+    index("idx_models_admin_deleted").on(table.adminStatus, table.deletedAt),
     index("idx_models_agent_active_priority").on(
       table.supportsAgent,
       table.active,
@@ -132,7 +206,7 @@ export const messages = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    index("idx_messages_conversation_sequence").on(
+    uniqueIndex("uq_messages_conversation_sequence").on(
       table.conversationId,
       table.sequenceNo,
     ),
@@ -140,6 +214,35 @@ export const messages = pgTable(
 );
 
 // ─── 2.7 context_snapshots ────────────────────
+export const chatIdempotencyKeys = pgTable(
+  "chat_idempotency_keys",
+  {
+    id: varchar("id", { length: 50 }).primaryKey(),
+    userId: varchar("user_id", { length: 50 })
+      .notNull()
+      .references(() => users.id),
+    conversationId: varchar("conversation_id", { length: 50 })
+      .notNull()
+      .references(() => conversations.id),
+    idempotencyKey: varchar("idempotency_key", { length: 120 }).notNull(),
+    status: varchar("status", { length: 20 }).notNull().default("processing"),
+    requestId: varchar("request_id", { length: 120 }).notNull(),
+    responseJson: jsonb("response_json"),
+    errorCode: varchar("error_code", { length: 80 }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("uq_chat_idempotency_scope").on(
+      table.userId,
+      table.conversationId,
+      table.idempotencyKey,
+    ),
+    index("idx_chat_idempotency_expires").on(table.expiresAt),
+  ],
+);
+
 export const contextSnapshots = pgTable("context_snapshots", {
   id: varchar("id", { length: 50 }).primaryKey(),
   conversationId: varchar("conversation_id", { length: 50 })
@@ -306,6 +409,71 @@ export const providerAttempts = pgTable(
       table.conversationId,
       table.startedAt,
     ),
+  ],
+);
+
+export const modelUsageEvents = pgTable(
+  "model_usage_events",
+  {
+    id: varchar("id", { length: 50 }).primaryKey(),
+    conversationId: varchar("conversation_id", { length: 50 }).references(
+      () => conversations.id,
+    ),
+    messageId: varchar("message_id", { length: 50 }).references(() => messages.id),
+    providerId: varchar("provider_id", { length: 50 })
+      .notNull()
+      .references(() => providers.id),
+    modelId: varchar("model_id", { length: 50 })
+      .notNull()
+      .references(() => models.id),
+    attemptNo: integer("attempt_no").notNull(),
+    wasManualSelection: boolean("was_manual_selection").notNull().default(false),
+    wasFailover: boolean("was_failover").notNull().default(false),
+    requestKind: varchar("request_kind", { length: 20 }).notNull(),
+    status: varchar("status", { length: 30 }).notNull(),
+    failureCode: varchar("failure_code", { length: 40 }),
+    latencyMs: integer("latency_ms"),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    totalTokens: integer("total_tokens").notNull().default(0),
+    costUsdMicros: integer("cost_usd_micros").notNull().default(0),
+    idempotencyKey: varchar("idempotency_key", { length: 120 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("idx_model_usage_events_model_created").on(table.modelId, table.createdAt),
+    index("idx_model_usage_events_conversation_created").on(
+      table.conversationId,
+      table.createdAt,
+    ),
+  ],
+);
+
+export const modelUsageRollups = pgTable(
+  "model_usage_rollups",
+  {
+    id: varchar("id", { length: 50 }).primaryKey(),
+    modelId: varchar("model_id", { length: 50 })
+      .notNull()
+      .references(() => models.id),
+    bucketStart: timestamp("bucket_start", { withTimezone: true }).notNull(),
+    bucketGranularity: varchar("bucket_granularity", { length: 10 }).notNull(),
+    requestCount: integer("request_count").notNull().default(0),
+    successCount: integer("success_count").notNull().default(0),
+    errorCount: integer("error_count").notNull().default(0),
+    rateLimitCount: integer("rate_limit_count").notNull().default(0),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    totalTokens: integer("total_tokens").notNull().default(0),
+    costUsdMicros: integer("cost_usd_micros").notNull().default(0),
+  },
+  (table) => [
+    uniqueIndex("uq_model_usage_rollups_bucket").on(
+      table.modelId,
+      table.bucketStart,
+      table.bucketGranularity,
+    ),
+    index("idx_model_usage_rollups_bucket").on(table.bucketStart, table.bucketGranularity),
   ],
 );
 

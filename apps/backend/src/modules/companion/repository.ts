@@ -1,4 +1,4 @@
-import { randomUUID } from "crypto";
+import { createHash, randomUUID, timingSafeEqual } from "crypto";
 import { and, desc, eq } from "drizzle-orm";
 import { generateId } from "@clm/shared-utils";
 import type {
@@ -9,7 +9,7 @@ import type {
 } from "@clm/shared-types";
 import { getDb } from "../../db/connection.js";
 import { auditEvents, devices } from "../../db/schema.js";
-import { badRequest, conflict } from "../../lib/http-errors.js";
+import { badRequest, conflict, unauthorized } from "../../lib/http-errors.js";
 import { getRedis, type RedisClient } from "../../redis/client.js";
 import { redisKeys } from "../../redis/keys.js";
 
@@ -19,6 +19,10 @@ export interface CompanionRepository {
   createPairingChallenge(userId: string): Promise<PairStartResponse>;
   completePairing(input: PairCompleteRequest): Promise<PairCompleteResponse>;
   getCompanionStatus(userId: string): Promise<CompanionStatusResponse>;
+  resolveMachineSession(input: {
+    deviceId: string;
+    machineSessionToken: string;
+  }): Promise<{ userId: string; deviceId: string }>;
 }
 
 export interface PairingChallengeRecord {
@@ -34,6 +38,7 @@ export interface CompanionDeviceRecord {
   deviceType?: string;
   machineLabel: string | null;
   machineFingerprintHash: string | null;
+  machineSessionTokenHash?: string | null;
   lastSeenAt: string | null;
   createdAt: string;
 }
@@ -60,6 +65,24 @@ export interface CreateDatabaseCompanionRepositoryOptions {
 
 function createMachineSessionToken() {
   return `machine_${randomUUID()}`;
+}
+
+function hashMachineSessionToken(token: string) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function isMachineSessionTokenMatch(rawToken: string, storedHash: string | null | undefined) {
+  if (!storedHash) {
+    return false;
+  }
+
+  const candidateHash = hashMachineSessionToken(rawToken);
+  const candidateBuffer = Buffer.from(candidateHash, "hex");
+  const storedBuffer = Buffer.from(storedHash, "hex");
+  return (
+    candidateBuffer.length === storedBuffer.length &&
+    timingSafeEqual(candidateBuffer, storedBuffer)
+  );
 }
 
 function resolveNow(now?: () => Date) {
@@ -160,6 +183,8 @@ export function createInMemoryCompanionRepository(
         challenges.get(input.pairingCode) ?? null,
         currentTime,
       );
+      const machineSessionToken = tokenFactory();
+      const machineSessionTokenHash = hashMachineSessionToken(machineSessionToken);
 
       record.usedAt = currentTime.toISOString();
       challenges.set(record.pairingCode, record);
@@ -172,6 +197,7 @@ export function createInMemoryCompanionRepository(
 
       if (device) {
         device.machineLabel = input.machineLabel;
+        device.machineSessionTokenHash = machineSessionTokenHash;
         device.lastSeenAt = currentTime.toISOString();
       } else {
         device = {
@@ -180,6 +206,7 @@ export function createInMemoryCompanionRepository(
           deviceType: "desktop_companion",
           machineLabel: input.machineLabel,
           machineFingerprintHash: input.machineFingerprintHash,
+          machineSessionTokenHash,
           lastSeenAt: currentTime.toISOString(),
           createdAt: currentTime.toISOString(),
         };
@@ -196,7 +223,7 @@ export function createInMemoryCompanionRepository(
 
       return {
         deviceId: device.id,
-        machineSessionToken: tokenFactory(),
+        machineSessionToken,
       };
     },
     async getCompanionStatus(userId) {
@@ -220,6 +247,24 @@ export function createInMemoryCompanionRepository(
       return {
         connected: isConnectionValueConnected(connectionStates.get(device.id) ?? null),
         machineLabel: device.machineLabel,
+        deviceId: device.id,
+      };
+    },
+    async resolveMachineSession(input) {
+      const device = deviceItems.find((item) => item.id === input.deviceId) ?? null;
+      if (
+        !device ||
+        device.deviceType !== "desktop_companion" ||
+        !isMachineSessionTokenMatch(
+          input.machineSessionToken,
+          device.machineSessionTokenHash,
+        )
+      ) {
+        throw unauthorized("Invalid companion machine session.");
+      }
+
+      return {
+        userId: device.userId,
         deviceId: device.id,
       };
     },
@@ -251,6 +296,8 @@ export function createDatabaseCompanionRepository(
       const db = getDb();
       const currentTime = now();
       const key = redisKeys.pairingChallenge(input.pairingCode);
+      const machineSessionToken = tokenFactory();
+      const machineSessionTokenHash = hashMachineSessionToken(machineSessionToken);
       const rawRecord = await redis.getdel(key);
       const record = validateChallengeRecord(
         rawRecord ? (JSON.parse(rawRecord) as PairingChallengeRecord) : null,
@@ -274,6 +321,7 @@ export function createDatabaseCompanionRepository(
             .update(devices)
             .set({
               machineLabel: input.machineLabel,
+              machineSessionTokenHash,
               lastSeenAt: currentTime,
             })
             .where(eq(devices.id, existingDevice.id));
@@ -284,6 +332,7 @@ export function createDatabaseCompanionRepository(
             deviceType: "desktop_companion",
             machineLabel: input.machineLabel,
             machineFingerprintHash: input.machineFingerprintHash,
+            machineSessionTokenHash,
             lastSeenAt: currentTime,
             createdAt: currentTime,
           });
@@ -307,7 +356,7 @@ export function createDatabaseCompanionRepository(
 
       return {
         deviceId,
-        machineSessionToken: tokenFactory(),
+        machineSessionToken,
       };
     },
     async getCompanionStatus(userId) {
@@ -333,6 +382,31 @@ export function createDatabaseCompanionRepository(
       return {
         connected: isConnectionValueConnected(connectionValue),
         machineLabel: device.machineLabel,
+        deviceId: device.id,
+      };
+    },
+    async resolveMachineSession(input) {
+      const db = getDb();
+      const device = await db.query.devices.findFirst({
+        where: and(
+          eq(devices.id, input.deviceId),
+          eq(devices.deviceType, "desktop_companion"),
+        ),
+        orderBy: [desc(devices.createdAt)],
+      });
+
+      if (
+        !device ||
+        !isMachineSessionTokenMatch(
+          input.machineSessionToken,
+          device.machineSessionTokenHash,
+        )
+      ) {
+        throw unauthorized("Invalid companion machine session.");
+      }
+
+      return {
+        userId: device.userId,
         deviceId: device.id,
       };
     },

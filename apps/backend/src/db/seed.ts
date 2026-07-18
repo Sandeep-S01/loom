@@ -5,12 +5,15 @@
  * Run with: pnpm --filter @clm/backend db:seed
  */
 
-import "dotenv/config";
 import bcrypt from "bcryptjs";
 const { hashSync } = bcrypt;
+import { sql } from "drizzle-orm";
+import { loadBackendEnv } from "../config/load-env.js";
 import { getDb } from "./connection.js";
 import { users, providers, models } from "./schema.js";
 import { generateId } from "@clm/shared-utils";
+
+loadBackendEnv();
 
 async function seed() {
   const db = getDb();
@@ -29,6 +32,7 @@ async function seed() {
       email,
       displayName: "Primary User",
       passwordHash,
+      role: "admin",
     })
     .onConflictDoNothing();
 
@@ -45,6 +49,8 @@ async function seed() {
         id: openrouterId,
         name: "OpenRouter",
         baseType: "openrouter",
+        driverKey: "openrouter",
+        defaultSecretRef: "OPENROUTER_API_KEY",
         status: "active",
         priorityRank: 1,
       },
@@ -52,11 +58,23 @@ async function seed() {
         id: geminiId,
         name: "Google Gemini",
         baseType: "gemini",
+        driverKey: "gemini",
+        defaultSecretRef: "GEMINI_API_KEY",
         status: "active",
         priorityRank: 2,
       },
     ])
-    .onConflictDoNothing();
+    .onConflictDoUpdate({
+      target: providers.id,
+      set: {
+        name: sql`excluded.name`,
+        baseType: sql`excluded.base_type`,
+        driverKey: sql`excluded.driver_key`,
+        defaultSecretRef: sql`excluded.default_secret_ref`,
+        status: sql`excluded.status`,
+        priorityRank: sql`excluded.priority_rank`,
+      },
+    });
 
   console.log("  ✓ Providers: OpenRouter, Google Gemini");
 
@@ -68,7 +86,7 @@ async function seed() {
       {
         id: "mdl_deepseek_chat_free",
         providerId: openrouterId,
-        name: "DeepSeek Chat (Free)",
+        name: "DeepSeek Chat",
         externalModelKey: "deepseek/deepseek-chat-v3-0324",
         supportsChat: true,
         supportsAgent: true,
@@ -76,11 +94,17 @@ async function seed() {
         contextWindow: 131072,
         priorityRank: 1,
         active: true,
+        adminStatus: "active",
+        runtimeStatus: "healthy",
+        secretRef: null,
+        costTier: "paid",
+        costInputPer1mUsdMicros: 240000,
+        costOutputPer1mUsdMicros: 900000,
       },
       {
         id: "mdl_qwen3_30b_free",
         providerId: openrouterId,
-        name: "Qwen3 30B A3B (Free)",
+        name: "Qwen3 30B A3B",
         externalModelKey: "qwen/qwen3-30b-a3b",
         supportsChat: true,
         supportsAgent: true,
@@ -88,6 +112,12 @@ async function seed() {
         contextWindow: 131072,
         priorityRank: 2,
         active: true,
+        adminStatus: "active",
+        runtimeStatus: "healthy",
+        secretRef: null,
+        costTier: "paid",
+        costInputPer1mUsdMicros: 120000,
+        costOutputPer1mUsdMicros: 500000,
       },
       // Gemini free models
       {
@@ -101,6 +131,9 @@ async function seed() {
         contextWindow: 1048576,
         priorityRank: 3,
         active: true,
+        adminStatus: "active",
+        runtimeStatus: "healthy",
+        secretRef: null,
       },
       {
         id: "mdl_gemini_2_flash_lite",
@@ -113,9 +146,28 @@ async function seed() {
         contextWindow: 1048576,
         priorityRank: 4,
         active: true,
+        adminStatus: "active",
+        runtimeStatus: "healthy",
+        secretRef: null,
       },
     ])
-    .onConflictDoNothing();
+    .onConflictDoUpdate({
+      target: models.id,
+      set: {
+        providerId: sql`excluded.provider_id`,
+        name: sql`excluded.name`,
+        externalModelKey: sql`excluded.external_model_key`,
+        supportsChat: sql`excluded.supports_chat`,
+        supportsAgent: sql`excluded.supports_agent`,
+        supportsVision: sql`excluded.supports_vision`,
+        contextWindow: sql`excluded.context_window`,
+        priorityRank: sql`excluded.priority_rank`,
+        active: sql`excluded.active`,
+        adminStatus: sql`excluded.admin_status`,
+        runtimeStatus: sql`excluded.runtime_status`,
+        secretRef: sql`excluded.secret_ref`,
+      },
+    });
 
   console.log("  ✓ Models: DeepSeek Chat, Qwen3 30B, Gemini 2.0 Flash, Gemini 2.0 Flash-Lite");
 

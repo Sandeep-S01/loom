@@ -5,32 +5,28 @@ interface ChatEmptyStateProps {
 }
 
 const PROMPTS = [
-  "Outline a step-by-step implementation plan for the current milestone.",
-  "Review this code change and list the highest-risk regressions.",
-  "Summarize the current workspace state and next engineering actions.",
-  "Help me debug a failing API request in this project.",
+  "Plan the next implementation step.",
+  "Review this change for regressions.",
+  "Help debug a failing request.",
 ];
 
 export function ChatEmptyState({ onPromptSelect }: ChatEmptyStateProps) {
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col justify-center px-6 py-8">
-      <div className="max-w-2xl">
-        <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-text-muted">
-          Loom Workspace
-        </p>
-        <h1 className="mt-4 text-3xl font-semibold tracking-tight leading-tight text-transparent bg-clip-text bg-gradient-to-r from-white via-white to-white/50 sm:text-4xl">
-          Build, debug, and move the workspace forward.
+    <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center px-4 py-6 sm:px-6">
+      <div className="max-w-xl">
+        <h1 className="font-headline text-2xl font-medium leading-tight tracking-[-0.03em] text-[color:var(--color-text-primary)] sm:text-3xl">
+          What are we working on?
         </h1>
-        <p className="mt-3 max-w-xl text-sm leading-relaxed text-text-secondary">
-          Start with a thread, paste an error, or pick a focused prompt to begin.
+        <p className="mt-3 text-sm leading-relaxed text-text-secondary">
+          Start a thread or choose a prompt.
         </p>
       </div>
 
-      <div className="mt-8 grid gap-3 sm:grid-cols-2">
+      <div className="mt-6 grid gap-2.5 sm:grid-cols-3">
         {PROMPTS.map((prompt, index) => (
           <button
             key={prompt}
-            className="group relative rounded-xl border border-white/5 bg-white/[0.01] px-4 py-3.5 text-left text-xs text-text-secondary transition-all duration-200 hover:-translate-y-0.5 hover:border-accent/25 hover:bg-accent/[0.02] hover:text-text-primary"
+            className="group rounded-lg border border-[color:var(--color-border-subtle)] bg-[color:var(--color-surface-panel)] px-3.5 py-3 text-left text-xs text-text-secondary transition-colors duration-200 hover:border-[color:var(--color-border-strong)] hover:bg-[color:var(--color-bg-hover)] hover:text-text-primary"
             onClick={() => onPromptSelect(prompt)}
             type="button"
           >

@@ -30,6 +30,9 @@ export interface Provider {
   id: string;
   name: string;
   baseType: string;
+  driverKey?: string;
+  defaultSecretRef?: string | null;
+  metadataJson?: Record<string, unknown> | null;
   status: ProviderStatus;
   priorityRank: number;
   createdAt: string;
@@ -48,6 +51,21 @@ export interface Model {
   contextWindow: number;
   priorityRank: number;
   active: boolean;
+  adminStatus?: "active" | "disabled";
+  runtimeStatus?: "healthy" | "rate_limited" | "open_circuit" | "auth_invalid";
+  secretRef?: string | null;
+  cooldownUntil?: string | null;
+  requestsPerMinuteLimit?: number | null;
+  tokensPerDayLimit?: number | null;
+  tokensUsedToday?: number;
+  tokensUsedDayBucket?: string | null;
+  consecutiveFailures?: number;
+  lastFailureCode?: string | null;
+  lastFailureAt?: string | null;
+  lastSuccessAt?: string | null;
+  costInputPer1mUsdMicros?: number | null;
+  costOutputPer1mUsdMicros?: number | null;
+  deletedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -69,10 +87,18 @@ export interface Conversation {
 // ─── Messages ─────────────────────────────────
 export type MessageRole = "system" | "user" | "assistant" | "tool" | "status";
 
-export interface MessageContent {
-  type: "text";
-  text: string;
-}
+export type MessageContent =
+  | {
+      type: "text";
+      text: string;
+    }
+  | {
+      type: "image";
+      data: string;
+      filename: string;
+      mimeType: "image/png" | "image/jpeg" | "image/webp";
+      size: number;
+    };
 
 export interface Message {
   id: string;

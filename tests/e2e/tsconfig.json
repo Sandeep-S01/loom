@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "lib": ["ES2022", "DOM"],
+    "noEmit": true
+  },
+  "include": ["./**/*.ts", "../../apps/backend/e2e/**/*.ts", "../../playwright.config.ts"]
+}

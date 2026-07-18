@@ -13,6 +13,14 @@ import type { ProviderFailureCode } from "./types.js";
  *  - provider_unreachable: network issue, moderate wait
  */
 const COOLDOWN_DURATION_MS: Record<ProviderFailureCode, number> = {
+  provider_unavailable: 60_000,
+  provider_timeout: 30_000,
+  provider_rate_limited: 30_000,
+  invalid_api_key: 10 * 60_000,
+  model_not_found: 10 * 60_000,
+  context_too_large: 15_000,
+  provider_4xx: 60_000,
+  unknown_provider_error: 15_000,
   rate_limited_transient: 30_000,
   quota_exhausted: 5 * 60_000,
   provider_5xx: 60_000,

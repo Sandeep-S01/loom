@@ -10,6 +10,10 @@ export interface CompanionService {
   startPairing(userId: string): Promise<PairStartResponse>;
   completePairing(input: PairCompleteRequest): Promise<PairCompleteResponse>;
   getStatus(userId: string): Promise<CompanionStatusResponse>;
+  resolveMachineSession(input: {
+    deviceId: string;
+    machineSessionToken: string;
+  }): Promise<{ userId: string; deviceId: string }>;
 }
 
 export interface CreateCompanionServiceOptions {
@@ -28,6 +32,9 @@ export function createCompanionService(
     },
     async getStatus(userId: string) {
       return options.repository.getCompanionStatus(userId);
+    },
+    async resolveMachineSession(input) {
+      return options.repository.resolveMachineSession(input);
     },
   };
 }

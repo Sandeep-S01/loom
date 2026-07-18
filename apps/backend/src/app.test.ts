@@ -5,6 +5,9 @@ import { createInMemoryCompanionRepository } from "./modules/companion/repositor
 import { createCompanionService } from "./modules/companion/service.js";
 import { createInMemoryWorkspacesRepository } from "./modules/workspaces/repository.js";
 import { createWorkspacesService } from "./modules/workspaces/service.js";
+import { createInMemoryModelRegistryService } from "./modules/models/service.js";
+import type { SessionService } from "./modules/session/service.js";
+import { SESSION_COOKIE_NAME } from "./plugins/session.js";
 
 let app: FastifyInstance | undefined;
 
@@ -14,10 +17,91 @@ afterEach(async () => {
     app = undefined;
   }
 
+  delete process.env.OPENROUTER_API_KEY;
+  delete process.env.GEMINI_API_KEY;
+  delete process.env.METRICS_ENABLED;
+  delete process.env.METRICS_TOKEN;
   vi.useRealTimers();
 });
 
+describe("operational metrics", () => {
+  it("does not expose the metrics endpoint when collection is disabled", async () => {
+    app = buildApp();
+
+    const response = await app.inject({ method: "GET", url: "/metrics" });
+
+    expect(response.statusCode).toBe(404);
+  });
+
+  it("requires the dedicated bearer token and exports bounded route labels", async () => {
+    process.env.METRICS_ENABLED = "true";
+    process.env.METRICS_TOKEN = "metrics-token-with-at-least-32-characters";
+    app = buildApp();
+
+    const unauthorized = await app.inject({ method: "GET", url: "/metrics" });
+    expect(unauthorized.statusCode).toBe(401);
+
+    await app.inject({ method: "GET", url: "/api/v1/health/live?request=unique-value" });
+    const response = await app.inject({
+      method: "GET",
+      url: "/metrics",
+      headers: { authorization: `Bearer ${process.env.METRICS_TOKEN}` },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/plain");
+    expect(response.body).toContain("loom_http_requests_total");
+    expect(response.body).toContain('route="/api/v1/health/live"');
+    expect(response.body).not.toContain("unique-value");
+  });
+});
+
 describe("session bootstrap", () => {
+  it("returns health diagnostics without exposing provider secrets", async () => {
+    process.env.OPENROUTER_API_KEY = "sk-openrouter-health-secret";
+    process.env.GEMINI_API_KEY = "gemini-health-secret";
+    app = buildApp();
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/health",
+    });
+
+    const body = response.body;
+    expect(response.statusCode).toBe(200);
+    expect(body).not.toContain("sk-openrouter-health-secret");
+    expect(body).not.toContain("gemini-health-secret");
+    expect(body).not.toContain("OPENROUTER_API_KEY");
+    expect(body).not.toContain("GEMINI_API_KEY");
+  });
+
+  it("keeps liveness healthy while readiness reports dependency failures", async () => {
+    app = buildApp({
+      readinessProbe: async () => ({
+        database: "unavailable",
+        redis: "ok",
+      }),
+    });
+
+    const liveResponse = await app.inject({
+      method: "GET",
+      url: "/api/v1/health/live",
+    });
+    const readyResponse = await app.inject({
+      method: "GET",
+      url: "/api/v1/health/ready",
+    });
+
+    expect(liveResponse.statusCode).toBe(200);
+    expect(liveResponse.json().status).toBe("ok");
+    expect(readyResponse.statusCode).toBe(503);
+    expect(readyResponse.json()).toMatchObject({
+      status: "unavailable",
+      database: { status: "unavailable" },
+      redis: { status: "ok" },
+    });
+  });
+
   it("returns the seeded single user", async () => {
     app = buildApp();
 
@@ -32,12 +116,610 @@ describe("session bootstrap", () => {
         id: "usr_seeded",
         displayName: "Primary User",
         email: "user@clm.local",
+        role: "admin",
       },
     });
   }, 10000);
+
+  it("rejects session bootstrap when no authenticated session exists", async () => {
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/session",
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({
+      error: {
+        code: "UNAUTHORIZED",
+        message: "Authentication required.",
+        requestId: expect.any(String),
+      },
+    });
+  });
+
+  it("creates a session cookie for valid credentials", async () => {
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+    });
+
+    const loginResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/session/login",
+      payload: {
+        email: "user@clm.local",
+        password: "changeme",
+      },
+    });
+
+    expect(loginResponse.statusCode).toBe(200);
+    expect(loginResponse.json()).toEqual({
+      user: {
+        id: "usr_seeded",
+        displayName: "Primary User",
+        email: "user@clm.local",
+        role: "admin",
+      },
+    });
+    expect(loginResponse.cookies).toEqual([
+      expect.objectContaining({
+        name: SESSION_COOKIE_NAME,
+        httpOnly: true,
+        sameSite: "Lax",
+      }),
+      expect.anything(),
+    ]);
+    const sessionToken = loginResponse.cookies.find(
+      (cookie) => cookie.name === SESSION_COOKIE_NAME,
+    )?.value;
+    expect(sessionToken).toBe("session_admin");
+    expect(sessionToken).not.toBe("usr_seeded");
+
+    const sessionResponse = await app.inject({
+      method: "GET",
+      url: "/api/v1/session",
+      cookies: {
+        [SESSION_COOKIE_NAME]: sessionToken!,
+      },
+    });
+
+    expect(sessionResponse.statusCode).toBe(200);
+    expect(sessionResponse.json().user.id).toBe("usr_seeded");
+  });
+
+  it("rejects invalid login credentials", async () => {
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/session/login",
+      payload: {
+        email: "user@clm.local",
+        password: "wrong-password",
+      },
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({
+      error: {
+        code: "UNAUTHORIZED",
+        message: "Invalid email or password.",
+        requestId: expect.any(String),
+      },
+    });
+  });
+
+  it("registers a customer account and creates a session cookie", async () => {
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/session/register",
+      payload: {
+        email: "new.customer@example.com",
+        password: "strongpass",
+        displayName: "New Customer",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      user: {
+        id: "usr_registered",
+        displayName: "New Customer",
+        email: "new.customer@example.com",
+        role: "customer",
+      },
+    });
+    expect(response.cookies).toContainEqual(
+      expect.objectContaining({
+        name: SESSION_COOKIE_NAME,
+        httpOnly: true,
+        sameSite: "Lax",
+      }),
+    );
+  });
+
+  it("rejects weak registration passwords", async () => {
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/session/register",
+      payload: {
+        email: "new.customer@example.com",
+        password: "short",
+        displayName: "New Customer",
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.message).toBe(
+      "Password must be at least 8 characters.",
+    );
+  });
+
+  it("does not accept a raw user id as an authenticated session token", async () => {
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/session",
+      cookies: {
+        [SESSION_COOKIE_NAME]: "usr_seeded",
+      },
+    });
+
+    expect(response.statusCode).toBe(401);
+  });
+
+  it("rate limits repeated login failures", async () => {
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+    });
+
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/session/login",
+        payload: {
+          email: "user@clm.local",
+          password: `wrong-${attempt}`,
+        },
+      });
+      expect(response.statusCode).toBe(401);
+    }
+
+    const blockedResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/session/login",
+      payload: {
+        email: "user@clm.local",
+        password: "still-wrong",
+      },
+    });
+
+    expect(blockedResponse.statusCode).toBe(429);
+    expect(blockedResponse.json().error.code).toBe("TOO_MANY_REQUESTS");
+  });
+
+  it("rejects untrusted mutation origins in production", async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousFrontendUrl = process.env.FRONTEND_URL;
+    process.env.NODE_ENV = "production";
+    process.env.FRONTEND_URL = "https://loom.example";
+
+    try {
+      app = buildApp({
+        sessionService: createStrictTestSessionService(),
+      });
+
+      const blockedResponse = await app.inject({
+        method: "POST",
+        url: "/api/v1/session/login",
+        payload: {
+          email: "user@clm.local",
+          password: "changeme",
+        },
+      });
+      expect(blockedResponse.statusCode).toBe(403);
+
+      const trustedResponse = await app.inject({
+        method: "POST",
+        url: "/api/v1/session/login",
+        headers: {
+          origin: "https://loom.example",
+        },
+        payload: {
+          email: "user@clm.local",
+          password: "changeme",
+        },
+      });
+      expect(trustedResponse.statusCode).toBe(200);
+    } finally {
+      if (previousNodeEnv === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = previousNodeEnv;
+      }
+      if (previousFrontendUrl === undefined) {
+        delete process.env.FRONTEND_URL;
+      } else {
+        process.env.FRONTEND_URL = previousFrontendUrl;
+      }
+    }
+  });
+
+  it("clears the session cookie on logout", async () => {
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+    });
+
+    const loginResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/session/login",
+      payload: {
+        email: "user@clm.local",
+        password: "changeme",
+      },
+    });
+    const sessionToken = loginResponse.cookies.find(
+      (cookie) => cookie.name === SESSION_COOKIE_NAME,
+    )?.value;
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/session/logout",
+      cookies: {
+        [SESSION_COOKIE_NAME]: sessionToken!,
+      },
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(response.cookies).toEqual([
+      expect.objectContaining({
+        name: SESSION_COOKIE_NAME,
+        value: "",
+      }),
+      expect.anything(),
+    ]);
+
+    const revokedResponse = await app.inject({
+      method: "GET",
+      url: "/api/v1/session",
+      cookies: {
+        [SESSION_COOKIE_NAME]: sessionToken!,
+      },
+    });
+    expect(revokedResponse.statusCode).toBe(401);
+  });
+
+  it("updates the authenticated session profile", async () => {
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/api/v1/session",
+      cookies: {
+        [SESSION_COOKIE_NAME]: "session_admin",
+      },
+      payload: {
+        displayName: "Sandeep Singh",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      user: {
+        id: "usr_seeded",
+        displayName: "Sandeep Singh",
+        email: "user@clm.local",
+        role: "admin",
+      },
+    });
+  });
+});
+
+function createStrictTestSessionService(): SessionService {
+  let displayName = "Primary User";
+  let revoked = false;
+  let registered = false;
+
+  return {
+    async resolveSessionUser(sessionToken) {
+      if (sessionToken === "session_admin" && !revoked) {
+        return {
+          id: "usr_seeded",
+          email: "user@clm.local",
+          displayName,
+          role: "admin",
+        };
+      }
+
+      return null;
+    },
+    async authenticate(input) {
+      if (
+        input.email === "user@clm.local" &&
+        input.password === "changeme"
+      ) {
+        return {
+          id: "usr_seeded",
+          email: "user@clm.local",
+          displayName,
+          role: "admin",
+        };
+      }
+
+      const { unauthorized } = await import("./lib/http-errors.js");
+      throw unauthorized("Invalid email or password.");
+    },
+    async createSession(userId) {
+      if (userId !== "usr_seeded" && userId !== "usr_registered") {
+        throw new Error("Unknown test user");
+      }
+      revoked = false;
+      return {
+        token: userId === "usr_registered" ? "session_registered" : "session_admin",
+        expiresAt: new Date(Date.now() + 60_000),
+      };
+    },
+    async revokeSession(sessionToken) {
+      if (sessionToken === "session_admin") {
+        revoked = true;
+      }
+    },
+    async registerUser(input) {
+      if (registered || input.email === "user@clm.local") {
+        const { conflict } = await import("./lib/http-errors.js");
+        throw conflict("An account with this email already exists.");
+      }
+
+      registered = true;
+      return {
+        id: "usr_registered",
+        email: input.email,
+        displayName: input.displayName,
+        role: "customer",
+      };
+    },
+    async updateProfile(input) {
+      if (input.userId !== "usr_seeded") {
+        const { unauthorized } = await import("./lib/http-errors.js");
+        throw unauthorized("Authentication required.");
+      }
+
+      displayName = input.displayName;
+
+      return {
+        id: "usr_seeded",
+        email: "user@clm.local",
+        displayName,
+        role: "admin",
+      };
+    },
+  };
+}
+
+function createCustomerTestSessionService(): SessionService {
+  return {
+    async resolveSessionUser(sessionToken) {
+      if (sessionToken !== "session_customer") {
+        return null;
+      }
+
+      return {
+        id: "usr_customer",
+        email: "customer@clm.local",
+        displayName: "Customer User",
+        role: "customer",
+      };
+    },
+    async authenticate() {
+      return {
+        id: "usr_customer",
+        email: "customer@clm.local",
+        displayName: "Customer User",
+        role: "customer",
+      };
+    },
+    async createSession() {
+      return {
+        token: "session_customer",
+        expiresAt: new Date(Date.now() + 60_000),
+      };
+    },
+    async revokeSession() {},
+    async registerUser(input) {
+      return {
+        id: "usr_customer_registered",
+        email: input.email,
+        displayName: input.displayName,
+        role: "customer",
+      };
+    },
+    async updateProfile(input) {
+      return {
+        id: input.userId,
+        email: "customer@clm.local",
+        displayName: input.displayName,
+        role: "customer",
+      };
+    },
+  };
+}
+
+describe("admin route protection", () => {
+  it("allows customers to use the chat selector but blocks full model registry access", async () => {
+    const app = buildApp({
+      sessionService: createCustomerTestSessionService(),
+      modelRegistryService: createInMemoryModelRegistryService(),
+    });
+
+    const selectorResponse = await app.inject({
+      method: "GET",
+      url: "/api/v1/models/selector?mode=chat",
+      cookies: {
+        [SESSION_COOKIE_NAME]: "session_customer",
+      },
+    });
+
+    expect(selectorResponse.statusCode).toBe(200);
+
+    const registryResponse = await app.inject({
+      method: "GET",
+      url: "/api/v1/models",
+      cookies: {
+        [SESSION_COOKIE_NAME]: "session_customer",
+      },
+    });
+
+    expect(registryResponse.statusCode).toBe(403);
+    expect(registryResponse.json().error.message).toBe("Admin access required.");
+
+    await app.close();
+  });
+
+  it("blocks customer marketplace sync mutations", async () => {
+    const app = buildApp({
+      sessionService: createCustomerTestSessionService(),
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/marketplace/free-models/sync",
+      payload: {},
+      cookies: {
+        [SESSION_COOKIE_NAME]: "session_customer",
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.message).toBe("Admin access required.");
+
+    await app.close();
+  });
+
+  it("returns paginated failover attempts to admins only", async () => {
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+    });
+
+    const adminResponse = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/failover-attempts?page=1&pageSize=10",
+      cookies: {
+        [SESSION_COOKIE_NAME]: "session_admin",
+      },
+    });
+
+    expect(adminResponse.statusCode).toBe(200);
+    expect(adminResponse.json()).toEqual({
+      items: [],
+      page: 1,
+      pageSize: 10,
+      total: 0,
+      hasNextPage: false,
+    });
+  });
+
+  it("caps failover diagnostics page size at 100 rows", async () => {
+    const modelRegistryService = createInMemoryModelRegistryService();
+    const listAttemptEvents = vi.fn(async (input) => ({
+      items: [],
+      page: input.page,
+      pageSize: input.pageSize,
+      total: 0,
+      hasNextPage: false,
+    }));
+    modelRegistryService.listAttemptEvents = listAttemptEvents;
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+      modelRegistryService,
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/failover-attempts?pageSize=100000",
+      cookies: { [SESSION_COOKIE_NAME]: "session_admin" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(listAttemptEvents).toHaveBeenCalledWith(expect.objectContaining({ pageSize: 100 }));
+  });
+
+  it("rejects unknown model mutation fields and inverted analytics ranges", async () => {
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+      modelRegistryService: createInMemoryModelRegistryService(),
+    });
+    const cookies = { [SESSION_COOKIE_NAME]: "session_admin" };
+
+    const patchResponse = await app.inject({
+      method: "PATCH",
+      url: "/api/v1/models/mdl_unknown",
+      payload: { runtimeStatus: "healthy" },
+      cookies,
+    });
+    const analyticsResponse = await app.inject({
+      method: "GET",
+      url: "/api/v1/models/analytics?from=2026-07-11T00:00:00.000Z&to=2026-07-10T00:00:00.000Z",
+      cookies,
+    });
+
+    expect(patchResponse.statusCode).toBe(400);
+    expect(patchResponse.json().error.message).toContain("Unknown model field");
+    expect(analyticsResponse.statusCode).toBe(400);
+    expect(analyticsResponse.json().error.message).toContain("must not be after");
+  });
+
+  it("blocks customer access to failover attempts", async () => {
+    const customerApp = buildApp({
+      sessionService: createCustomerTestSessionService(),
+    });
+
+    const response = await customerApp.inject({
+      method: "GET",
+      url: "/api/v1/admin/failover-attempts",
+      cookies: {
+        [SESSION_COOKIE_NAME]: "session_customer",
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.message).toBe("Admin access required.");
+
+    await customerApp.close();
+  });
 });
 
 describe("conversation routes", () => {
+  it("rejects titles that exceed the database limit", async () => {
+    app = buildApp();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/conversations",
+      payload: { mode: "chat", title: "x".repeat(501) },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.message).toContain("500 characters or fewer");
+  });
+
   it("creates and lists chat conversations for the session user", async () => {
     app = buildApp();
 
@@ -65,6 +747,88 @@ describe("conversation routes", () => {
     expect(listResponse.statusCode).toBe(200);
     expect(listResponse.json().conversations).toHaveLength(1);
     expect(listResponse.json().conversations[0].title).toBe("New Conversation");
+  });
+
+  it("renames a conversation for the session user", async () => {
+    app = buildApp();
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/conversations",
+      payload: {
+        mode: "chat",
+        title: "Original Conversation",
+      },
+    });
+    const cookies = createResponse.cookies.reduce<Record<string, string>>((acc, cookie) => {
+      acc[cookie.name] = cookie.value;
+      return acc;
+    }, {});
+
+    const updateResponse = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/conversations/${createResponse.json().conversation.id}`,
+      payload: {
+        title: "Renamed Conversation",
+      },
+      cookies,
+    });
+
+    expect(updateResponse.statusCode).toBe(200);
+    expect(updateResponse.json()).toEqual({
+      conversation: expect.objectContaining({
+        id: createResponse.json().conversation.id,
+        title: "Renamed Conversation",
+      }),
+    });
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/api/v1/conversations",
+      cookies,
+    });
+
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json().conversations).toEqual([
+      expect.objectContaining({
+        id: createResponse.json().conversation.id,
+        title: "Renamed Conversation",
+      }),
+    ]);
+  });
+
+  it("archives a conversation so it no longer appears in the recent list", async () => {
+    app = buildApp();
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/conversations",
+      payload: {
+        mode: "chat",
+        title: "Delete Me",
+      },
+    });
+    const cookies = createResponse.cookies.reduce<Record<string, string>>((acc, cookie) => {
+      acc[cookie.name] = cookie.value;
+      return acc;
+    }, {});
+
+    const deleteResponse = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/conversations/${createResponse.json().conversation.id}`,
+      cookies,
+    });
+
+    expect(deleteResponse.statusCode).toBe(204);
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/api/v1/conversations",
+      cookies,
+    });
+
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json().conversations).toEqual([]);
   });
 
   it("returns a structured 404 error for an unknown conversation", async () => {
@@ -121,6 +885,26 @@ describe("conversation routes", () => {
 });
 
 describe("dashboard routes", () => {
+  it("rejects dashboard access without an authenticated session", async () => {
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/dashboard",
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({
+      error: {
+        code: "UNAUTHORIZED",
+        message: "Authentication required.",
+        requestId: expect.any(String),
+      },
+    });
+  });
+
   it("returns an empty dashboard payload for a new session", async () => {
     app = buildApp();
 
@@ -511,6 +1295,84 @@ describe("workspaces", () => {
     });
   });
 
+  it("allows a paired companion to register a workspace with its machine token", async () => {
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+    });
+
+    const startResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/companion/pair/start",
+      cookies: {
+        [SESSION_COOKIE_NAME]: "session_admin",
+      },
+    });
+
+    const pairResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/companion/pair/complete",
+      payload: {
+        pairingCode: startResponse.json().pairingCode,
+        machineLabel: "Devbox",
+        machineFingerprintHash: "sha256:device",
+      },
+    });
+
+    const selectResponse = await app.inject({
+      method: "POST",
+      url: "/api/v1/workspaces/select",
+      headers: {
+        authorization: `Bearer ${pairResponse.json().machineSessionToken}`,
+      },
+      payload: {
+        machineId: pairResponse.json().deviceId,
+        alias: "backend",
+        canonicalPathHash: "sha256:path-a",
+        displayPathHint: "D:/Personal_Project/clm_tool",
+      },
+    });
+
+    expect(selectResponse.statusCode).toBe(200);
+    expect(selectResponse.json()).toEqual({
+      workspace: {
+        id: expect.stringMatching(/^wrk_/),
+        alias: "backend",
+        machineId: pairResponse.json().deviceId,
+        status: "active",
+        displayPathHint: "D:/Personal_Project/clm_tool",
+      },
+    });
+  });
+
+  it("rejects workspace registration with an invalid companion machine token", async () => {
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/workspaces/select",
+      headers: {
+        authorization: "Bearer machine_invalid",
+      },
+      payload: {
+        machineId: "dev_missing",
+        alias: "backend",
+        canonicalPathHash: "sha256:path-a",
+        displayPathHint: "D:/Personal_Project/clm_tool",
+      },
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({
+      error: {
+        code: "UNAUTHORIZED",
+        message: "Invalid companion machine session.",
+        requestId: expect.any(String),
+      },
+    });
+  });
+
   it("surfaces paired companion and active workspace state in the dashboard payload", async () => {
     app = buildApp();
 
@@ -734,9 +1596,15 @@ describe("production app wiring", () => {
     }));
     vi.doMock("./modules/providers/gemini-client.js", () => ({
       invokeGemini: vi.fn(),
+      geminiDriver: { key: "gemini", testConnection: vi.fn(), invokeChat: vi.fn() },
     }));
     vi.doMock("./modules/providers/openrouter-client.js", () => ({
       invokeOpenRouter: vi.fn(),
+      openRouterDriver: {
+        key: "openrouter",
+        testConnection: vi.fn(),
+        invokeChat: vi.fn(),
+      },
     }));
 
     const { buildProductionApp } = await import("./app.js");

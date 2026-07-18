@@ -1,10 +1,12 @@
-import { useId } from "react";
+import React from "react";
 
 interface LoomLogoProps {
   className?: string;
   markClassName?: string;
   textClassName?: string;
   showWordmark?: boolean;
+  ariaLabel?: string;
+  variant?: "color" | "mono" | "white";
 }
 
 export function LoomLogo({
@@ -12,55 +14,47 @@ export function LoomLogo({
   markClassName,
   textClassName,
   showWordmark = true,
+  ariaLabel = "Loom",
+  variant = "color",
 }: LoomLogoProps) {
-  return (
-    <div className={["flex items-center gap-2.5", className].filter(Boolean).join(" ")}>
-      <LoomMark className={markClassName} />
-      {showWordmark ? (
-        <span
-          className={[
-            "text-[1.05rem] font-medium tracking-[0.08em] text-white lowercase",
-            textClassName,
-          ]
-            .filter(Boolean)
-            .join(" ")}
-        >
-          loom
-        </span>
-      ) : null}
-    </div>
-  );
-}
-
-interface LoomMarkProps {
-  className?: string;
-}
-
-export function LoomMark({ className }: LoomMarkProps) {
-  const gradientId = useId().replace(/:/g, "");
+  const imageClassName = showWordmark
+    ? textClassName ?? "h-6 sm:h-[25px] w-auto"
+    : markClassName ?? "h-8 w-auto";
+  const imageSrc = getLogoSrc(showWordmark, variant);
+  const fallbackSize = showWordmark
+    ? { width: 220, height: 63 }
+    : { width: 64, height: 64 };
 
   return (
-    <svg
-      aria-hidden="true"
-      className={["h-8 w-8 shrink-0", className].filter(Boolean).join(" ")}
-      viewBox="0 0 96 96"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
+    <span
+      aria-label={ariaLabel}
+      className={["inline-flex items-center", className].filter(Boolean).join(" ")}
+      role="img"
     >
-      <defs>
-        <linearGradient id={gradientId} x1="13" y1="20" x2="83" y2="77" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#6F5BFF" />
-          <stop offset="0.48" stopColor="#2B8DFF" />
-          <stop offset="1" stopColor="#21E4C5" />
-        </linearGradient>
-      </defs>
-
-      <g stroke={`url(#${gradientId})`} strokeLinecap="round" strokeLinejoin="round" strokeWidth="10">
-        <path d="M40 15 17 38a14 14 0 0 0 0 20l11 11a14 14 0 0 0 20 0l23-23" />
-        <path d="m56 81 23-23a14 14 0 0 0 0-20L68 27a14 14 0 0 0-20 0L25 50" />
-      </g>
-
-      <path d="m37 38 22 22" stroke="#8EDCFF" strokeLinecap="round" strokeWidth="8" />
-    </svg>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        alt=""
+        aria-hidden="true"
+        className={["block object-contain", imageClassName].filter(Boolean).join(" ")}
+        height={fallbackSize.height}
+        src={imageSrc}
+        width={fallbackSize.width}
+      />
+    </span>
   );
+}
+
+function getLogoSrc(
+  showWordmark: boolean,
+  variant: NonNullable<LoomLogoProps["variant"]>,
+) {
+  if (!showWordmark) {
+    return "/brand/loom-favicon-transparent.png";
+  }
+
+  if (variant === "white") {
+    return "/brand/loom-logo-header-white.png";
+  }
+
+  return "/brand/loom-logo-header.png";
 }

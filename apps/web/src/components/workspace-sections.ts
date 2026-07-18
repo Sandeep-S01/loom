@@ -1,4 +1,5 @@
 export type WorkspaceSection =
+  | "dashboard"
   | "chat"
   | "workspaces"
   | "models"
@@ -14,6 +15,7 @@ export interface WorkspaceSectionMeta {
 }
 
 export const SECTION_ORDER: WorkspaceSection[] = [
+  "dashboard",
   "chat",
   "workspaces",
   "models",
@@ -23,6 +25,13 @@ export const SECTION_ORDER: WorkspaceSection[] = [
 ];
 
 export const SECTION_META: Record<WorkspaceSection, WorkspaceSectionMeta> = {
+  dashboard: {
+    label: "Dashboard",
+    eyebrow: "Overview",
+    description:
+      "Start from a role-aware workspace summary before opening chat or connecting local context.",
+    shortLabel: "DB",
+  },
   chat: {
     label: "Chat",
     eyebrow: "Primary",

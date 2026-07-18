@@ -46,9 +46,15 @@ export function completePairing(payload: PairCompleteRequest) {
   });
 }
 
-export function selectWorkspace(payload: SelectWorkspaceRequest) {
+export function selectWorkspace(
+  payload: SelectWorkspaceRequest,
+  machineSessionToken: string,
+) {
   return request<SelectWorkspaceResponse>("/api/v1/workspaces/select", {
     method: "POST",
+    headers: {
+      Authorization: `Bearer ${machineSessionToken}`,
+    },
     body: JSON.stringify(payload),
   });
 }

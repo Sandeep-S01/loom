@@ -19,7 +19,8 @@ export function DashboardCard({
   return (
     <Panel
       action={action}
-      className={["ui-card-shell shadow-sm", className ?? ""].join(" ").trim()}
+      variant="shell"
+      className={className}
       contentClassName="mt-5"
       eyebrow={eyebrow}
       title={title}

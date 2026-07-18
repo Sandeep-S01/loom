@@ -7,13 +7,17 @@
     "build": "turbo run build",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
+    "typecheck:e2e": "tsc --noEmit -p tests/e2e/tsconfig.json",
     "test": "turbo run test",
+    "test:e2e": "playwright test",
+    "test:load": "node scripts/load/chat-load.mjs",
     "clean": "turbo run clean",
     "db:generate": "pnpm --filter @clm/backend db:generate",
     "db:migrate": "pnpm --filter @clm/backend db:migrate",
     "db:seed": "pnpm --filter @clm/backend db:seed"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "turbo": "^2.5.0",
     "typescript": "^5.7.0"
   }

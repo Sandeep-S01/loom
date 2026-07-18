@@ -1,0 +1,44 @@
+groups:
+  - name: loom-release-safety
+    rules:
+      - alert: LoomBackendUnavailable
+        expr: up{job="loom-backend"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: Loom backend metrics target is unavailable
+
+      - alert: LoomDependencyUnavailable
+        expr: loom_dependency_healthy == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Loom dependency unavailable: {{ $labels.dependency }}"
+
+      - alert: LoomNoEligibleModels
+        expr: loom_eligible_chat_models < 1
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: Loom has no eligible chat models
+
+      - alert: LoomHighHttpErrorRate
+        expr: sum(rate(loom_http_requests_total{status_code=~"5.."}[5m])) / clamp_min(sum(rate(loom_http_requests_total[5m])), 0.001) > 0.05
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: Loom HTTP 5xx rate exceeds 5 percent
+
+      - alert: LoomHighProviderFailureRate
+        expr: sum(rate(loom_provider_attempts_total{status="failed"}[5m])) / clamp_min(sum(rate(loom_provider_attempts_total[5m])), 0.001) > 0.20
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: Loom provider failure rate exceeds 20 percent
+
+      - alert: LoomHighFailoverRate
+        expr: sum(rate(loom_provider_failovers_total[10m])) / clamp_min(sum(rate(loom_provider_attempts_total[10m])), 0.001) > 0.10
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: Loom provider failover rate exceeds 10 percent

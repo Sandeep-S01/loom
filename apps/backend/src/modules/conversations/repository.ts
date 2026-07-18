@@ -1,4 +1,5 @@
-import { and, desc, eq, max } from "drizzle-orm";
+import { and, desc, eq, max, sql } from "drizzle-orm";
+import type { MessageContent } from "@clm/shared-types";
 import { generateId } from "@clm/shared-utils";
 import { getDb } from "../../db/connection.js";
 import { conversations, messages } from "../../db/schema.js";
@@ -17,7 +18,15 @@ export interface ConversationRepository {
   listForUser(userId: string): Promise<ConversationRecord[]>;
   createForUser(userId: string, title: string): Promise<ConversationRecord>;
   findForUser(userId: string, conversationId: string): Promise<ConversationRecord | null>;
-  listMessages(conversationId: string): Promise<MessageRecord[]>;
+  updateForUser(
+    userId: string,
+    conversationId: string,
+    input: { title?: string; archived?: boolean },
+  ): Promise<ConversationRecord | null>;
+  listMessages(
+    conversationId: string,
+    options?: { limit?: number },
+  ): Promise<MessageRecord[]>;
   appendMessage(input: AppendMessageInput): Promise<MessageRecord>;
 }
 
@@ -25,10 +34,7 @@ export interface MessageRecord {
   id: string;
   conversationId: string;
   role: "system" | "user" | "assistant" | "tool" | "status";
-  content: Array<{
-    type: "text";
-    text: string;
-  }>;
+  content: MessageContent[];
   providerId: string | null;
   modelId: string | null;
   createdAt: string;
@@ -73,8 +79,32 @@ export function createInMemoryConversationRepository(): ConversationRepository {
         null
       );
     },
-    async listMessages(conversationId) {
-      return messageItems.filter((item) => item.conversationId === conversationId);
+    async updateForUser(userId, conversationId, input) {
+      const conversation =
+        items.find((item) => item.userId === userId && item.id === conversationId) ?? null;
+
+      if (!conversation) {
+        return null;
+      }
+
+      if (input.title !== undefined) {
+        conversation.title = input.title;
+      }
+
+      if (input.archived !== undefined) {
+        conversation.archived = input.archived;
+      }
+
+      conversation.updatedAt = new Date().toISOString();
+      return conversation;
+    },
+    async listMessages(conversationId, options) {
+      const rows = messageItems.filter((item) => item.conversationId === conversationId);
+      if (!options?.limit || options.limit <= 0) {
+        return rows;
+      }
+
+      return rows.slice(-options.limit);
     },
     async appendMessage(input) {
       const createdAt = new Date().toISOString();
@@ -172,13 +202,61 @@ export function createDatabaseConversationRepository(): ConversationRepository {
         updatedAt: row.updatedAt.toISOString(),
       };
     },
-    async listMessages(conversationId) {
+    async updateForUser(userId, conversationId, input) {
       const db = getDb();
 
-      const rows = await db.query.messages.findMany({
-        where: eq(messages.conversationId, conversationId),
-        orderBy: (message, helpers) => helpers.asc(message.sequenceNo),
-      });
+      const updates: {
+        title?: string;
+        archived?: boolean;
+        updatedAt: Date;
+      } = {
+        updatedAt: new Date(),
+      };
+
+      if (input.title !== undefined) {
+        updates.title = input.title;
+      }
+
+      if (input.archived !== undefined) {
+        updates.archived = input.archived;
+      }
+
+      const result = await db
+        .update(conversations)
+        .set(updates)
+        .where(and(eq(conversations.userId, userId), eq(conversations.id, conversationId)))
+        .returning();
+
+      const row = result[0];
+      if (!row) {
+        return null;
+      }
+
+      return {
+        id: row.id,
+        userId: row.userId,
+        mode: row.mode as "chat",
+        title: row.title,
+        archived: row.archived,
+        lastMessageAt: row.lastMessageAt?.toISOString() ?? null,
+        updatedAt: row.updatedAt.toISOString(),
+      };
+    },
+    async listMessages(conversationId, options) {
+      const db = getDb();
+
+      const rows = options?.limit && options.limit > 0
+        ? (
+            await db.query.messages.findMany({
+              where: eq(messages.conversationId, conversationId),
+              orderBy: (message, helpers) => helpers.desc(message.sequenceNo),
+              limit: options.limit,
+            })
+          ).reverse()
+        : await db.query.messages.findMany({
+            where: eq(messages.conversationId, conversationId),
+            orderBy: (message, helpers) => helpers.asc(message.sequenceNo),
+          });
 
       return rows.map((row) => ({
         id: row.id,
@@ -193,33 +271,42 @@ export function createDatabaseConversationRepository(): ConversationRepository {
     async appendMessage(input) {
       const db = getDb();
       const messageId = generateId("message");
-      const nextSequence = await getNextSequenceNumber(input.conversationId);
+      const inserted = await db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${input.conversationId}, 0))`,
+        );
 
-      await db.insert(messages).values({
-        id: messageId,
-        conversationId: input.conversationId,
-        role: input.role,
-        contentJson: input.content,
-        providerId: input.providerId ?? null,
-        modelId: input.modelId ?? null,
-        sequenceNo: nextSequence,
+        const sequenceResult = await tx
+          .select({ maxSequence: max(messages.sequenceNo) })
+          .from(messages)
+          .where(eq(messages.conversationId, input.conversationId));
+        const nextSequence = (sequenceResult[0]?.maxSequence ?? 0) + 1;
+
+        const [created] = await tx
+          .insert(messages)
+          .values({
+            id: messageId,
+            conversationId: input.conversationId,
+            role: input.role,
+            contentJson: input.content,
+            providerId: input.providerId ?? null,
+            modelId: input.modelId ?? null,
+            sequenceNo: nextSequence,
+          })
+          .returning();
+
+        if (!created) {
+          throw new Error("Message was not created");
+        }
+
+        const now = new Date();
+        await tx
+          .update(conversations)
+          .set({ lastMessageAt: now, updatedAt: now })
+          .where(eq(conversations.id, input.conversationId));
+
+        return created;
       });
-
-      await db
-        .update(conversations)
-        .set({
-          lastMessageAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .where(eq(conversations.id, input.conversationId));
-
-      const inserted = await db.query.messages.findFirst({
-        where: eq(messages.id, messageId),
-      });
-
-      if (!inserted) {
-        throw new Error("Message was not created");
-      }
 
       return {
         id: inserted.id,
@@ -232,17 +319,4 @@ export function createDatabaseConversationRepository(): ConversationRepository {
       };
     },
   };
-}
-
-export async function getNextSequenceNumber(conversationId: string) {
-  const db = getDb();
-
-  const result = await db
-    .select({
-      maxSequence: max(messages.sequenceNo),
-    })
-    .from(messages)
-    .where(eq(messages.conversationId, conversationId));
-
-  return (result[0]?.maxSequence ?? 0) + 1;
 }

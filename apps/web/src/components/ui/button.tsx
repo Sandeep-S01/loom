@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import React, { type ButtonHTMLAttributes, type ReactNode } from "react";
 
 type ButtonVariant = "primary" | "secondary" | "ghost";
 type ButtonSize = "sm" | "md";
@@ -11,14 +11,14 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const VARIANT_CLASSNAMES: Record<ButtonVariant, string> = {
-  primary: "ui-button-accent text-white",
+  primary: "ui-button-accent text-[color:var(--color-accent-text)]",
   secondary: "ui-button-subtle text-text-primary",
   ghost: "bg-transparent text-text-secondary hover:text-text-primary",
 };
 
 const SIZE_CLASSNAMES: Record<ButtonSize, string> = {
-  sm: "px-3 py-1.5 text-xs font-semibold",
-  md: "px-4 py-2 text-sm font-medium",
+  sm: "h-10 px-3.5 text-[13px] font-medium",
+  md: "h-10 px-[18px] text-sm font-medium",
 };
 
 export function Button({
@@ -33,7 +33,7 @@ export function Button({
   return (
     <button
       className={[
-        "inline-flex items-center justify-center gap-2 rounded-lg transition disabled:cursor-not-allowed disabled:opacity-60",
+        "inline-flex items-center justify-center gap-2 rounded-md transition disabled:cursor-not-allowed disabled:saturate-75",
         VARIANT_CLASSNAMES[variant],
         SIZE_CLASSNAMES[size],
         className ?? "",
@@ -47,7 +47,7 @@ export function Button({
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8v8H4z" />
         </svg>
       ) : null}
-      <span>{children}</span>
+      {children}
     </button>
   );
 }

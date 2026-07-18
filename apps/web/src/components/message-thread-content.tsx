@@ -15,7 +15,8 @@ interface MessageRolePresentationSnapshot {
 const FALLBACK_MESSAGE_TEXT = "Unsupported message content.";
 const UNKNOWN_ROLE_PRESENTATION: MessageRolePresentationSnapshot = {
   alignmentClassName: "justify-start",
-  bubbleClassName: "border border-white/10 bg-[#0f131b] text-text-secondary",
+  bubbleClassName:
+    "border border-[color:var(--color-border-subtle)] bg-[color:var(--color-surface-panel-muted)] text-text-secondary",
   label: "Message",
 };
 

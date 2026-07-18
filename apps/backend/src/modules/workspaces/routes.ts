@@ -1,9 +1,11 @@
 import type { FastifyInstance } from "fastify";
-import { badRequest } from "../../lib/http-errors.js";
+import { badRequest, unauthorized } from "../../lib/http-errors.js";
+import type { CompanionService } from "../companion/service.js";
 import type { WorkspacesService } from "./service.js";
 
 interface RegisterWorkspacesRoutesOptions {
   workspacesService: WorkspacesService;
+  companionService: CompanionService;
 }
 
 function requireTrimmedString(value: unknown, message: string) {
@@ -36,10 +38,6 @@ export async function registerWorkspacesRoutes(
   });
 
   app.post("/select", async (request) => {
-    if (!request.sessionUser) {
-      throw new Error("Session user is not available");
-    }
-
     const body =
       (request.body as
         | {
@@ -49,9 +47,13 @@ export async function registerWorkspacesRoutes(
             displayPathHint?: unknown;
           }
         | undefined) ?? {};
+    const machineId = requireTrimmedString(body.machineId, "Workspace machine ID is required");
+    const userId =
+      request.sessionUser?.id ??
+      (await resolveCompanionUserId(options.companionService, request.headers.authorization, machineId));
 
-    return options.workspacesService.selectWorkspace(request.sessionUser.id, {
-      machineId: requireTrimmedString(body.machineId, "Workspace machine ID is required"),
+    return options.workspacesService.selectWorkspace(userId, {
+      machineId,
       alias: requireTrimmedString(body.alias, "Workspace alias is required"),
       canonicalPathHash: requireTrimmedString(
         body.canonicalPathHash,
@@ -60,4 +62,35 @@ export async function registerWorkspacesRoutes(
       displayPathHint: getOptionalTrimmedString(body.displayPathHint),
     });
   });
+}
+
+async function resolveCompanionUserId(
+  companionService: CompanionService,
+  authorizationHeader: string | undefined,
+  machineId: string,
+) {
+  const token = getBearerToken(authorizationHeader);
+  if (!token) {
+    throw unauthorized("Authentication required.");
+  }
+
+  const session = await companionService.resolveMachineSession({
+    deviceId: machineId,
+    machineSessionToken: token,
+  });
+
+  return session.userId;
+}
+
+function getBearerToken(authorizationHeader: string | undefined) {
+  if (!authorizationHeader) {
+    return null;
+  }
+
+  const [scheme, token] = authorizationHeader.split(" ");
+  if (scheme !== "Bearer" || !token?.trim()) {
+    return null;
+  }
+
+  return token.trim();
 }

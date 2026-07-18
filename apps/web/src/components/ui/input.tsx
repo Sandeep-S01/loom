@@ -22,15 +22,15 @@ export function Input({
   return (
     <div>
       {label ? (
-        <label className="mb-1 block text-xs font-semibold text-text-secondary" htmlFor={id}>
+        <label className="mb-1.5 block font-label text-[11px] font-semibold uppercase tracking-[0.08em] text-text-secondary" htmlFor={id}>
           {label}
         </label>
       ) : null}
       <div className="relative flex items-center">
         <input
           className={[
-            "ui-input w-full px-3 py-2 text-xs",
-            revealable ? "pr-16 font-mono" : "",
+            "ui-input h-11 w-full px-4 py-3 text-sm",
+            revealable ? "pr-16" : "",
             className ?? "",
           ].join(" ")}
           id={id}
@@ -39,7 +39,7 @@ export function Input({
         />
         {revealable ? (
           <button
-            className="absolute right-2 rounded px-2 py-1 text-[10px] text-text-muted transition hover:text-text-primary"
+            className="absolute right-3 rounded px-2 py-1 text-[12px] text-text-muted transition hover:text-text-primary"
             onClick={() => setRevealed((current) => !current)}
             type="button"
           >

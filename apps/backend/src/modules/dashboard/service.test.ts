@@ -139,61 +139,82 @@ describe("dashboard service", () => {
   });
 
   it("counts eligible and cooldown models correctly", async () => {
-    const summary = await getProviderSummary({
-      listModels: async () => [
-        {
-          providerId: "prv_active",
-          modelId: "mdl_ready",
-          active: true,
-          supportsChat: true,
-          supportsAgent: false,
-          providerStatus: "active",
-        },
-        {
-          providerId: "prv_active",
-          modelId: "mdl_cooldown",
-          active: true,
-          supportsChat: false,
-          supportsAgent: true,
-          providerStatus: "active",
-        },
-        {
-          providerId: "prv_disabled",
-          modelId: "mdl_disabled",
-          active: true,
-          supportsChat: true,
-          supportsAgent: true,
-          providerStatus: "disabled",
-        },
-        {
-          providerId: "prv_active",
-          modelId: "mdl_inactive",
-          active: false,
-          supportsChat: true,
-          supportsAgent: true,
-          providerStatus: "active",
-        },
-        {
-          providerId: "prv_active",
-          modelId: "mdl_unsupported",
-          active: true,
-          supportsChat: false,
-          supportsAgent: false,
-          providerStatus: "active",
-        },
-      ],
-      listCooldownKeys: async () => [
-        redisKeys.providerCooldown("mdl_cooldown"),
-        redisKeys.providerCooldown("mdl_disabled"),
-        "clm:provider:cooldown:",
-      ],
-    });
+    process.env.OPENROUTER_API_KEY = "test-key";
 
-    expect(summary).toEqual({
-      eligibleCount: 1,
-      cooldownCount: 1,
-      lastExhaustedAt: null,
-    });
+    try {
+      const summary = await getProviderSummary({
+        listModels: async () => [
+          {
+            providerId: "prv_active",
+            modelId: "mdl_ready",
+            active: true,
+            adminStatus: "active",
+            cooldownUntil: null,
+            deletedAt: null,
+            defaultSecretRef: "OPENROUTER_API_KEY",
+            supportsChat: true,
+            supportsAgent: false,
+            providerStatus: "active",
+          },
+          {
+            providerId: "prv_active",
+            modelId: "mdl_cooldown",
+            active: true,
+            adminStatus: "active",
+            cooldownUntil: new Date(Date.now() + 60_000),
+            deletedAt: null,
+            defaultSecretRef: "OPENROUTER_API_KEY",
+            supportsChat: false,
+            supportsAgent: true,
+            providerStatus: "active",
+          },
+          {
+            providerId: "prv_disabled",
+            modelId: "mdl_disabled",
+            active: true,
+            adminStatus: "active",
+            cooldownUntil: null,
+            deletedAt: null,
+            defaultSecretRef: "OPENROUTER_API_KEY",
+            supportsChat: true,
+            supportsAgent: true,
+            providerStatus: "disabled",
+          },
+          {
+            providerId: "prv_active",
+            modelId: "mdl_inactive",
+            active: false,
+            adminStatus: "active",
+            cooldownUntil: null,
+            deletedAt: null,
+            defaultSecretRef: "OPENROUTER_API_KEY",
+            supportsChat: true,
+            supportsAgent: true,
+            providerStatus: "active",
+          },
+          {
+            providerId: "prv_active",
+            modelId: "mdl_unsupported",
+            active: true,
+            adminStatus: "active",
+            cooldownUntil: null,
+            deletedAt: null,
+            defaultSecretRef: "OPENROUTER_API_KEY",
+            supportsChat: false,
+            supportsAgent: false,
+            providerStatus: "active",
+          },
+        ],
+      });
+
+      expect(summary).toEqual({
+        eligibleCount: 1,
+        cooldownCount: 1,
+        lastExhaustedAt: null,
+      });
+    } finally {
+      delete process.env.OPENROUTER_API_KEY;
+    }
   });
 
   it("falls back to a disconnected companion state when redis reads fail", async () => {

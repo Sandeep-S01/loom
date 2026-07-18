@@ -77,9 +77,37 @@ export async function listDashboardProviderModels() {
       providerId: providers.id,
       modelId: models.id,
       active: models.active,
+      adminStatus: models.adminStatus,
+      runtimeStatus: models.runtimeStatus,
+      cooldownUntil: models.cooldownUntil,
+      deletedAt: models.deletedAt,
+      secretRef: models.secretRef,
+      defaultSecretRef: providers.defaultSecretRef,
       supportsChat: models.supportsChat,
       supportsAgent: models.supportsAgent,
+      tokensPerDayLimit: models.tokensPerDayLimit,
+      tokensUsedToday: models.tokensUsedToday,
+      tokensUsedDayBucket: models.tokensUsedDayBucket,
       providerStatus: providers.status,
+    })
+    .from(models)
+    .innerJoin(providers, eq(models.providerId, providers.id));
+}
+
+export async function listProviderCatalog() {
+  const db = getDb();
+
+  return db
+    .select({
+      providerId: providers.id,
+      providerName: providers.name,
+      providerBaseType: providers.baseType,
+      providerStatus: providers.status,
+      modelId: models.id,
+      modelName: models.name,
+      active: models.active,
+      supportsChat: models.supportsChat,
+      supportsAgent: models.supportsAgent,
     })
     .from(models)
     .innerJoin(providers, eq(models.providerId, providers.id));
@@ -87,11 +115,17 @@ export async function listDashboardProviderModels() {
 
 export async function recordProviderAttempt(input: {
   conversationId: string;
+  routingTraceId: string;
   providerId: string;
   modelId: string;
   attemptNo: number;
   status: "success" | "failed" | "switched";
   failureCode?: ProviderFailureCode;
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
   startedAt: Date;
   endedAt: Date;
 }) {

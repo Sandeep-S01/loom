@@ -2,12 +2,16 @@ export type ModelCapability = "chat" | "agent";
 
 export interface RankedModelCandidate {
   providerId: string;
+  providerName?: string;
   modelId: string;
   modelName: string;
   providerPriority: number;
   modelPriority: number;
   supportsChat?: boolean;
   supportsAgent?: boolean;
+  supportsVision?: boolean;
+  requestsPerMinuteLimit?: number | null;
+  contextWindow?: number | null;
 }
 
 export function rankModels(candidates: RankedModelCandidate[]) {
@@ -26,6 +30,7 @@ export interface SelectNextModelOptions {
   capability?: ModelCapability;
   /** Models currently in cooldown — modelId → cooldown expiry epoch ms. */
   cooldownMap?: Map<string, number>;
+  requiresVision?: boolean;
 }
 
 export function selectNextModel(
@@ -36,6 +41,7 @@ export function selectNextModel(
   const now = Date.now();
   const capability = options?.capability;
   const cooldownMap = options?.cooldownMap;
+  const requiresVision = options?.requiresVision ?? false;
 
   return (
     rankModels(candidates).find((candidate) => {
@@ -44,6 +50,7 @@ export function selectNextModel(
       // Capability filter
       if (capability === "chat" && candidate.supportsChat === false) return false;
       if (capability === "agent" && candidate.supportsAgent === false) return false;
+      if (requiresVision && !candidate.supportsVision) return false;
 
       // Cooldown filter
       if (cooldownMap) {

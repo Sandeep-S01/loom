@@ -21,7 +21,7 @@ export function ProviderSummaryCard({
           <div className="mt-3 flex items-baseline gap-2">
             <p
               className={[
-                "text-3xl font-extrabold tracking-tight",
+                "font-headline text-3xl font-medium tracking-[-0.03em]",
                 hasEligibleModels ? "text-text-primary" : "text-state-blocked",
               ].join(" ")}
             >
@@ -41,7 +41,7 @@ export function ProviderSummaryCard({
             Cooling down
           </p>
           <div className="mt-3 flex items-baseline gap-2">
-            <p className="text-3xl font-extrabold tracking-tight text-text-primary">
+            <p className="font-headline text-3xl font-medium tracking-[-0.03em] text-text-primary">
               {providerSummary.cooldownCount}
             </p>
             <span className="text-xs text-text-muted">models</span>

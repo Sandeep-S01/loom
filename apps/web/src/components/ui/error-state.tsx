@@ -21,7 +21,7 @@ export function ErrorState({
         <line x1="12" y1="16" x2="12.01" y2="16" />
       </svg>
       <div>
-        <h3 className="text-sm font-semibold text-white">{title}</h3>
+        <h3 className="font-headline text-base font-medium tracking-[-0.02em] text-text-primary">{title}</h3>
         <p className="mt-1 max-w-sm text-xs leading-relaxed text-text-secondary">{message}</p>
       </div>
       {action}

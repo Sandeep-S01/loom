@@ -9,6 +9,7 @@ interface MessageRolePresentation {
 }
 
 interface BuildUserTextMessageInput {
+  content?: MessageItem["content"];
   createdAt: string;
   id: string;
   text: string;
@@ -26,12 +27,12 @@ interface ApplySendResponseInput {
 const MESSAGE_ROLE_PRESENTATIONS: Record<MessageRole, MessageRolePresentation> = {
   assistant: {
     alignmentClassName: "justify-start",
-    bubbleClassName: "bg-[#11141b] text-text-primary",
+    bubbleClassName: "bg-[color:var(--color-surface-panel)] text-text-primary",
     label: "Assistant",
   },
   user: {
     alignmentClassName: "justify-end",
-    bubbleClassName: "bg-accent/15 text-white",
+    bubbleClassName: "bg-[color:var(--color-surface-panel-muted)] text-text-primary",
     label: "You",
   },
   system: {
@@ -42,12 +43,14 @@ const MESSAGE_ROLE_PRESENTATIONS: Record<MessageRole, MessageRolePresentation> =
   },
   tool: {
     alignmentClassName: "justify-start",
-    bubbleClassName: "border border-white/10 bg-[#0f131b] text-text-secondary",
+    bubbleClassName:
+      "border border-[color:var(--color-border-subtle)] bg-[color:var(--color-surface-panel-muted)] text-text-secondary",
     label: "Tool",
   },
   status: {
     alignmentClassName: "justify-center",
-    bubbleClassName: "border border-white/8 bg-[#0d1016] text-text-secondary",
+    bubbleClassName:
+      "border border-[color:var(--color-border-subtle)] bg-[color:var(--color-surface-panel-muted)] text-text-secondary",
     label: "Status",
   },
 };
@@ -57,6 +60,7 @@ export function getMessageRolePresentation(role: MessageRole): MessageRolePresen
 }
 
 export function buildUserTextMessage({
+  content,
   createdAt,
   id,
   text,
@@ -64,7 +68,7 @@ export function buildUserTextMessage({
   return {
     id,
     role: "user",
-    content: [{ type: "text", text }],
+    content: content ?? [{ type: "text", text }],
     createdAt,
   };
 }

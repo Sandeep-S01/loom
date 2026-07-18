@@ -136,7 +136,7 @@ selectFolderBtn.addEventListener("click", async () => {
       alias: result.alias,
       canonicalPathHash,
       displayPathHint: result.path,
-    });
+    }, state.session.machineSessionToken);
 
     state.workspace = {
       ...response.workspace,

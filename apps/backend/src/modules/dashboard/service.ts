@@ -6,10 +6,8 @@ import type {
 import { listDashboardProviderModels } from "../providers/repository.js";
 import {
   listCompanionConnectionEntries,
-  listProviderCooldownKeys,
   type RedisKeyValueEntry,
 } from "../../redis/dashboard.js";
-import { redisKeys } from "../../redis/keys.js";
 import type { DashboardRepository } from "./repository.js";
 
 export interface DashboardService {
@@ -22,9 +20,23 @@ export interface CreateDashboardServiceOptions {
   getProviderSummary?: () => Promise<DashboardProviderSummary>;
 }
 
-type DashboardProviderModel = Awaited<
-  ReturnType<typeof listDashboardProviderModels>
->[number];
+type DashboardProviderModel = {
+  providerId: string;
+  modelId: string;
+  active: boolean;
+  adminStatus?: string;
+  runtimeStatus?: string;
+  cooldownUntil?: Date | null;
+  deletedAt?: Date | null;
+  secretRef?: string | null;
+  defaultSecretRef?: string | null;
+  supportsChat: boolean;
+  supportsAgent: boolean;
+  tokensPerDayLimit?: number | null;
+  tokensUsedToday?: number;
+  tokensUsedDayBucket?: string | Date | null;
+  providerStatus: string;
+};
 
 export interface CompanionStateResolverOptions {
   listConnectionEntries?: () => Promise<RedisKeyValueEntry[]>;
@@ -47,7 +59,33 @@ function isDashboardModelSupported(item: DashboardProviderModel) {
 }
 
 function isDashboardModelBaseEligible(item: DashboardProviderModel) {
-  return item.active && item.providerStatus !== "disabled" && isDashboardModelSupported(item);
+  return (
+    item.active &&
+    (item.adminStatus ?? "active") === "active" &&
+    item.runtimeStatus !== "open_circuit" &&
+    item.runtimeStatus !== "auth_invalid" &&
+    item.providerStatus !== "disabled" &&
+    !item.deletedAt &&
+    isDashboardModelSupported(item) &&
+    isDashboardSecretConfigured(item)
+  );
+}
+
+function isDashboardSecretConfigured(item: DashboardProviderModel) {
+  const secretRef = item.secretRef ?? item.defaultSecretRef ?? null;
+  return Boolean(secretRef && process.env[secretRef]);
+}
+
+function getDashboardTokensUsedToday(item: DashboardProviderModel) {
+  const bucketValue =
+    item.tokensUsedDayBucket instanceof Date
+      ? item.tokensUsedDayBucket.toISOString()
+      : item.tokensUsedDayBucket ?? null;
+  const today = new Date().toISOString().slice(0, 10);
+  if (!bucketValue || bucketValue.slice(0, 10) !== today) {
+    return 0;
+  }
+  return item.tokensUsedToday ?? 0;
 }
 
 function parseCompanionConnectionValue(
@@ -115,32 +153,31 @@ export async function getProviderSummary(
 ): Promise<DashboardResponse["providerSummary"]> {
   const listModels = options.listModels ?? listDashboardProviderModels;
   const models = await listModels();
-  let cooldownModelIds = new Set<string>();
-
-  try {
-    const listCooldownKeys = options.listCooldownKeys ?? listProviderCooldownKeys;
-    cooldownModelIds = new Set(
-      (await listCooldownKeys())
-        .map((key) => redisKeys.parseProviderCooldownModelId(key))
-        .filter((modelId): modelId is string => modelId !== null),
-    );
-  } catch {
-    cooldownModelIds = new Set<string>();
-  }
 
   const eligibleModels = models.filter((item) => {
     if (!isDashboardModelBaseEligible(item)) {
       return false;
     }
 
-    return !cooldownModelIds.has(item.modelId);
+    if (item.cooldownUntil && item.cooldownUntil.getTime() > Date.now()) {
+      return false;
+    }
+
+    if (
+      item.tokensPerDayLimit != null &&
+      getDashboardTokensUsedToday(item) >= item.tokensPerDayLimit
+    ) {
+      return false;
+    }
+
+    return true;
   });
   const cooldownCount = models.filter((item) => {
     if (!isDashboardModelBaseEligible(item)) {
       return false;
     }
 
-    return cooldownModelIds.has(item.modelId);
+    return Boolean(item.cooldownUntil && item.cooldownUntil.getTime() > Date.now());
   }).length;
 
   return {

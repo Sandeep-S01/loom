@@ -13,7 +13,7 @@ const TONE_CLASSNAMES: Record<StatusTone, string> = {
   error: "text-state-blocked border-state-blocked/30 bg-state-blocked/10",
   warning: "text-state-degraded border-state-degraded/30 bg-state-degraded/10",
   info: "text-state-info border-state-info/30 bg-state-info/10",
-  neutral: "text-text-muted border-white/10 bg-white/[0.03]",
+  neutral: "text-text-muted border-[color:var(--color-border-subtle)] bg-[color:var(--color-surface-panel-muted)]",
 };
 
 const DOT_CLASSNAMES: Record<StatusTone, string> = {

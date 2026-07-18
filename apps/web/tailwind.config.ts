@@ -5,31 +5,34 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // Neutral productivity palette per docs/UI_UX.md §6
         surface: {
-          DEFAULT: "#0f1117",
-          elevated: "#1a1d27",
-          overlay: "#242837",
+          DEFAULT: "var(--color-bg-base)",
+          elevated: "var(--color-bg-elevated)",
+          overlay: "var(--color-bg-overlay)",
+          raised: "var(--color-bg-surface-raised)",
         },
         accent: {
-          DEFAULT: "#6366f1",
-          hover: "#818cf8",
-          muted: "#4f46e5",
+          DEFAULT: "var(--color-accent)",
+          hover: "var(--color-accent-hover)",
+          muted: "var(--color-teal-soft)",
         },
         state: {
-          healthy: "#22c55e",
-          degraded: "#f59e0b",
-          blocked: "#ef4444",
-          info: "#3b82f6",
+          healthy: "var(--color-status-success)",
+          degraded: "var(--color-status-warning)",
+          blocked: "var(--color-status-error)",
+          info: "var(--color-status-info)",
+          failover: "var(--color-status-failover)",
         },
         text: {
-          primary: "#f1f5f9",
-          secondary: "#94a3b8",
-          muted: "#64748b",
+          primary: "var(--color-text-primary)",
+          secondary: "var(--color-text-muted)",
+          muted: "var(--color-text-faint)",
         },
       },
       fontFamily: {
         sans: ["Inter", "system-ui", "sans-serif"],
+        headline: ["Inter", "system-ui", "sans-serif"],
+        label: ["Inter", "system-ui", "sans-serif"],
         mono: ["JetBrains Mono", "Fira Code", "monospace"],
       },
     },

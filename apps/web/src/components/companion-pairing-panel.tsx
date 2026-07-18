@@ -37,12 +37,10 @@ export function CompanionPairingPanel({
   };
 
   return (
-    <DashboardCard eyebrow="Desktop Pairing" title="Pair the companion">
+    <DashboardCard eyebrow="Companion" title="Desktop app">
       <div className="space-y-4">
         <Panel className="p-4" contentClassName="space-y-0">
-          <p className="ui-section-label">
-            Current machine
-          </p>
+          <p className="ui-section-label">Status</p>
           <div className="mt-2.5 flex items-center gap-2">
             <p className="text-sm font-semibold text-text-primary">
               {companion?.machineLabel ?? "No companion paired yet."}
@@ -53,19 +51,19 @@ export function CompanionPairingPanel({
           </div>
           <p className="mt-2 text-xs text-text-secondary">
             {companion?.deviceId
-              ? `Device ID: ${companion.deviceId}`
-              : "Generate a connection code below, then enter it in the Loom desktop companion to link."}
+              ? "This browser is linked to the desktop companion."
+              : "Generate a code and enter it in the desktop app."}
           </p>
         </Panel>
 
         {pairingCode ? (
-          <Panel className="border-accent/20 bg-accent/5 p-4" contentClassName="space-y-0">
+          <Panel className="border-accent/20 bg-[color:var(--color-surface-panel)] p-4" contentClassName="space-y-0">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-accent">
-                  Pairing code
+                <p className="font-label text-[10px] font-semibold uppercase tracking-[0.16em] text-accent">
+                  Code
                 </p>
-                <p className="mt-2 font-mono text-2xl font-bold tracking-[0.2em] text-white">
+                <p className="mt-2 font-mono text-2xl font-semibold tracking-[0.18em] text-text-primary">
                   {pairingCode}
                 </p>
                 <p className="mt-2 text-[10px] text-text-muted">
@@ -97,6 +95,7 @@ export function CompanionPairingPanel({
           <EmptyState
             action={
               <Button
+                className="min-w-[190px]"
                 isLoading={isStartingPairing}
                 onClick={onStartPairing}
                 type="button"
@@ -105,7 +104,8 @@ export function CompanionPairingPanel({
                 {isStartingPairing ? "Generating Code..." : "Generate Pairing Code"}
               </Button>
             }
-            description="Pair your machine by generating a connection code and typing it in the Loom desktop companion."
+            className="min-h-[180px]"
+            description="Generate a code, then enter it in the desktop app."
             title="No pairing code active"
           />
         )}

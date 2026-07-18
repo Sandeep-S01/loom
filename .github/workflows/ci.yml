@@ -4,68 +4,169 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+
+permissions:
+  contents: read
 
 jobs:
-  lint-typecheck-test:
-    name: Lint, Typecheck & Test
+  verify:
     runs-on: ubuntu-latest
-
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:16-alpine
         env:
           POSTGRES_USER: clm
-          POSTGRES_PASSWORD: clm_dev_password
+          POSTGRES_PASSWORD: clm_ci_password
           POSTGRES_DB: clm_tool
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
+          --health-cmd "pg_isready -U clm -d clm_tool"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
       redis:
         image: redis:7-alpine
         ports:
           - 6379:6379
         options: >-
           --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     env:
-      DATABASE_URL: postgresql://clm:clm_dev_password@localhost:5432/clm_tool
-      REDIS_URL: redis://localhost:6379
       NODE_ENV: test
+      DATABASE_URL: postgresql://clm:clm_ci_password@localhost:5432/clm_tool
+      REDIS_URL: redis://localhost:6379
+      ALLOW_DEV_SESSION: "false"
+      FRONTEND_URL: http://localhost:3000
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
         with:
-          version: 9
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+          version: 9.15.4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:migrate
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm lint
+      - run: pnpm --filter @clm/backend build
+      - run: pnpm --filter @clm/web build
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build shared packages
+  companion:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Tauri system dependencies
         run: |
-          pnpm --filter @clm/shared-types build
-          pnpm --filter @clm/shared-utils build
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @clm/companion typecheck
+      - run: pnpm --filter @clm/companion build
 
-      - name: Typecheck
-        run: pnpm typecheck
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck:e2e
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
 
-      - name: Test
-        run: pnpm test
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --prod --audit-level high
+      - uses: gitleaks/gitleaks-action@v2
+
+  containers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/backend/Dockerfile
+          push: false
+          tags: loom-backend:ci
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          push: false
+          tags: loom-web:ci
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+  staging-config:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Render non-secret staging validation configuration
+        run: |
+          mkdir -p deployment/runtime
+          token=abcdefghijklmnopqrstuvwxyz123456
+          sed "s/__METRICS_TOKEN__/$token/g" deployment/prometheus/prometheus.yml.template > deployment/runtime/prometheus.yml
+          cat > .env.staging.ci <<EOF
+          POSTGRES_PASSWORD=$token
+          DATABASE_URL=postgresql://loom:$token@postgres:5432/loom
+          REDIS_PASSWORD=$token
+          REDIS_URL=redis://:$token@redis:6379
+          PUBLIC_WEB_URL=http://localhost:8080
+          DEFAULT_USER_EMAIL=admin@example.com
+          DEFAULT_USER_PASSWORD=$token
+          PROVIDER_KEY_ENCRYPTION_SECRET=$token
+          COMPANION_PAIRING_SECRET=$token
+          METRICS_TOKEN=$token
+          EOF
+      - run: docker compose --env-file .env.staging.ci -f compose.staging.yml config --quiet
+      - run: docker run --rm --entrypoint promtool -v "$PWD/deployment/prometheus/alerts.yml:/alerts.yml:ro" prom/prometheus:v3.4.1 check rules /alerts.yml

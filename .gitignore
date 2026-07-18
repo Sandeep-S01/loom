@@ -19,6 +19,11 @@ Thumbs.db
 # IDE
 .vscode/settings.json
 .idea/
+.codex-logs/
+.codex-run-logs/
+.codex-temp/
+.codex-stitch/
+.runtime-logs/
 
 # Tauri build
 apps/companion/src-tauri/target/
@@ -40,3 +45,9 @@ turbo-*.log
 
 # Test coverage
 coverage/
+playwright-report/
+test-results/
+.playwright/
+backups/
+deployment/runtime/
+release-evidence/
