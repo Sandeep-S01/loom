@@ -87,6 +87,7 @@ import {
 import { registerMarketplaceSyncJob } from "./modules/marketplace/sync-job.js";
 import { registerAdminRoutes } from "./modules/admin/routes.js";
 import { registerProviderAdminRoutes } from "./modules/providers/admin-routes.js";
+import { registerModelCatalogAdminRoutes } from "./modules/model-catalog/admin-routes.js";
 import {
   createProviderManagementService,
 } from "./modules/providers/management-service.js";
@@ -98,6 +99,14 @@ import {
 } from "./modules/providers/management-repository.js";
 import { createEnvSecretReader } from "./modules/providers/secret-reader.js";
 import type { ProviderManagementService } from "./modules/providers/interfaces.js";
+import { createModelCatalogService } from "./modules/model-catalog/service.js";
+import {
+  createDatabaseModelCatalogProviderRepository,
+  createDatabaseModelCatalogRepository,
+  createInMemoryModelCatalogProviderRepository,
+  createInMemoryModelCatalogRepository,
+} from "./modules/model-catalog/repository.js";
+import type { ModelCatalogService } from "./modules/model-catalog/interfaces.js";
 import { checkDatabaseConnection } from "./db/connection.js";
 import { checkRedisConnection } from "./redis/client.js";
 import {
@@ -116,6 +125,7 @@ interface BuildAppOptions {
   chatService?: ChatService;
   modelRegistryService?: ModelRegistryService;
   providerManagementService?: ProviderManagementService;
+  modelCatalogService?: ModelCatalogService;
   dashboardService?: DashboardService;
   companionService?: CompanionService;
   workspacesService?: WorkspacesService;
@@ -158,6 +168,13 @@ export function buildApp(options: BuildAppOptions = {}) {
       providerRepository: createInMemoryProviderRepository(),
       credentialRepository: createInMemoryProviderCredentialRepository(),
       secretReader: createEnvSecretReader(),
+      logger: app.log,
+    });
+  const modelCatalogService =
+    options.modelCatalogService ??
+    createModelCatalogService({
+      repository: createInMemoryModelCatalogRepository(),
+      providerRepository: createInMemoryModelCatalogProviderRepository(),
       logger: app.log,
     });
   const chatService =
@@ -485,6 +502,9 @@ export function buildApp(options: BuildAppOptions = {}) {
         await registerProviderAdminRoutes(adminApp, {
           providerManagementService,
         });
+        await registerModelCatalogAdminRoutes(adminApp, {
+          modelCatalogService,
+        });
       },
       {
         prefix: "/api/v1/admin",
@@ -522,6 +542,10 @@ export function buildProductionApp() {
     providerRepository: createDatabaseProviderRepository(),
     credentialRepository: createDatabaseProviderCredentialRepository(),
     secretReader: createEnvSecretReader(),
+  });
+  const modelCatalogService = createModelCatalogService({
+    repository: createDatabaseModelCatalogRepository(),
+    providerRepository: createDatabaseModelCatalogProviderRepository(),
   });
   const retentionCleanup = createRetentionCleanupService({
     policy: {
@@ -561,6 +585,7 @@ export function buildProductionApp() {
     conversationRepository,
     modelRegistryService,
     providerManagementService,
+    modelCatalogService,
     marketplaceService,
     dashboardService,
     companionService,

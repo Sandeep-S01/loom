@@ -704,6 +704,66 @@ describe("admin route protection", () => {
 
     await customerApp.close();
   });
+
+  it("returns model catalog results to admins with parsed query filters", async () => {
+    const listCatalog = vi.fn(async (filters) => ({
+      items: [],
+      page: filters.page,
+      pageSize: filters.pageSize,
+      total: 0,
+      hasNextPage: false,
+    }));
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+      modelCatalogService: {
+        listCatalog,
+        getCatalogModel: vi.fn(),
+        upsertDiscoveredModel: vi.fn(),
+        upsertDiscoveredModels: vi.fn(),
+      },
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/model-catalog?pageSize=1000&capability=toolUse&costTier=free",
+      cookies: { [SESSION_COOKIE_NAME]: "session_admin" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      items: [],
+      page: 1,
+      pageSize: 100,
+      total: 0,
+      hasNextPage: false,
+    });
+    expect(listCatalog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        capability: "toolUse",
+        costTier: "free",
+        pageSize: 100,
+      }),
+    );
+  });
+
+  it("blocks customer access to the model catalog admin API", async () => {
+    const customerApp = buildApp({
+      sessionService: createCustomerTestSessionService(),
+    });
+
+    const response = await customerApp.inject({
+      method: "GET",
+      url: "/api/v1/admin/model-catalog",
+      cookies: {
+        [SESSION_COOKIE_NAME]: "session_customer",
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.message).toBe("Admin access required.");
+
+    await customerApp.close();
+  });
 });
 
 describe("conversation routes", () => {

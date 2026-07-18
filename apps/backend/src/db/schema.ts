@@ -164,6 +164,58 @@ export const models = pgTable(
 );
 
 // ─── 2.5 conversations ───────────────────────
+export const modelCatalog = pgTable(
+  "model_catalog",
+  {
+    id: varchar("id", { length: 50 }).primaryKey(),
+    providerId: varchar("provider_id", { length: 50 })
+      .notNull()
+      .references(() => providers.id),
+    externalModelKey: varchar("external_model_key", { length: 255 }).notNull(),
+    displayName: varchar("display_name", { length: 255 }).notNull(),
+    description: text("description"),
+    supportsChat: boolean("supports_chat").notNull().default(false),
+    supportsAgent: boolean("supports_agent").notNull().default(false),
+    supportsVision: boolean("supports_vision").notNull().default(false),
+    supportsToolUse: boolean("supports_tool_use").notNull().default(false),
+    supportsJsonMode: boolean("supports_json_mode").notNull().default(false),
+    capabilitiesJson: jsonb("capabilities_json").notNull(),
+    contextWindow: integer("context_window"),
+    maxOutputTokens: integer("max_output_tokens"),
+    costTier: varchar("cost_tier", { length: 20 }).notNull().default("free"),
+    pricingJson: jsonb("pricing_json").notNull(),
+    releaseStage: varchar("release_stage", { length: 30 }).notNull().default("stable"),
+    releasedAt: timestamp("released_at", { withTimezone: true }),
+    deprecatedAt: timestamp("deprecated_at", { withTimezone: true }),
+    deprecationReason: text("deprecation_reason"),
+    providerMetadataJson: jsonb("provider_metadata_json").notNull(),
+    firstDiscoveredAt: timestamp("first_discovered_at", { withTimezone: true }).notNull(),
+    lastDiscoveredAt: timestamp("last_discovered_at", { withTimezone: true }).notNull(),
+    lastChangedAt: timestamp("last_changed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("uq_model_catalog_provider_external").on(
+      table.providerId,
+      table.externalModelKey,
+    ),
+    index("idx_model_catalog_provider").on(table.providerId),
+    index("idx_model_catalog_provider_deprecated").on(
+      table.providerId,
+      table.deprecatedAt,
+    ),
+    index("idx_model_catalog_capabilities").on(
+      table.supportsChat,
+      table.supportsAgent,
+      table.supportsVision,
+    ),
+    index("idx_model_catalog_cost_tier").on(table.costTier),
+    index("idx_model_catalog_release_stage").on(table.releaseStage),
+    index("idx_model_catalog_last_discovered").on(table.lastDiscoveredAt),
+  ],
+);
+
 export const conversations = pgTable(
   "conversations",
   {
