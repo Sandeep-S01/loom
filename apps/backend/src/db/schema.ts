@@ -644,6 +644,52 @@ export const providerAttempts = pgTable(
   ],
 );
 
+export const routingAttempts = pgTable(
+  "routing_attempts",
+  {
+    id: varchar("id", { length: 50 }).primaryKey(),
+    requestId: varchar("request_id", { length: 120 }).notNull(),
+    userId: varchar("user_id", { length: 50 })
+      .notNull()
+      .references(() => users.id),
+    conversationId: varchar("conversation_id", { length: 50 }).references(
+      () => conversations.id,
+    ),
+    agentRunId: varchar("agent_run_id", { length: 50 }).references(
+      () => agentRuns.id,
+    ),
+    mode: varchar("mode", { length: 10 }).notNull(),
+    registryModelId: varchar("registry_model_id", { length: 50 }).references(
+      () => modelRegistry.id,
+    ),
+    status: varchar("status", { length: 30 }).notNull(),
+    eligibleCount: integer("eligible_count").notNull().default(0),
+    ineligibleCount: integer("ineligible_count").notNull().default(0),
+    reasonCode: varchar("reason_code", { length: 80 }),
+    reasonMessage: text("reason_message"),
+    metadataJson: jsonb("metadata_json").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("uq_routing_attempts_request").on(table.requestId),
+    index("idx_routing_attempts_user_created").on(table.userId, table.createdAt),
+    index("idx_routing_attempts_conversation_created").on(
+      table.conversationId,
+      table.createdAt,
+    ),
+    index("idx_routing_attempts_agent_run_created").on(
+      table.agentRunId,
+      table.createdAt,
+    ),
+    index("idx_routing_attempts_registry_created").on(
+      table.registryModelId,
+      table.createdAt,
+    ),
+    index("idx_routing_attempts_status_created").on(table.status, table.createdAt),
+    index("idx_routing_attempts_mode_created").on(table.mode, table.createdAt),
+  ],
+);
+
 export const modelUsageEvents = pgTable(
   "model_usage_events",
   {

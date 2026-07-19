@@ -9,6 +9,7 @@ import { createInMemoryModelRegistryService } from "./modules/models/service.js"
 import type { ModelRegistryApprovalService } from "./modules/model-registry/interfaces.js";
 import type { ModelPolicyService } from "./modules/model-policy/interfaces.js";
 import type { ModelEligibilityService } from "./modules/model-eligibility/interfaces.js";
+import type { ModelRoutingService } from "./modules/model-routing/interfaces.js";
 import type { ModelRuntimeHealthService } from "./modules/model-runtime-health/interfaces.js";
 import type { ProviderHealthService } from "./modules/provider-health/interfaces.js";
 import type { ModelDiscoveryService } from "./modules/model-discovery/interfaces.js";
@@ -1597,6 +1598,223 @@ describe("model eligibility routes", () => {
 
     expect(response.statusCode).toBe(401);
     expect(evaluate).not.toHaveBeenCalled();
+  });
+});
+
+describe("model routing routes", () => {
+  it("selects a route for admins", async () => {
+    const selectRoute: ModelRoutingService["selectRoute"] = vi.fn(async (input) => ({
+      attempt: {
+        id: "ratt_1",
+        requestId: input.requestId ?? "route_generated",
+        userId: input.userId,
+        conversationId: input.conversationId ?? null,
+        agentRunId: input.agentRunId ?? null,
+        mode: input.mode,
+        registryModelId: "mreg_deepseek",
+        status: "selected" as const,
+        eligibleCount: 1,
+        ineligibleCount: 0,
+        reasonCode: null,
+        reasonMessage: null,
+        metadata: {},
+        createdAt: new Date("2026-07-19T00:00:00.000Z").toISOString(),
+      },
+      model: {
+        registryModelId: "mreg_deepseek",
+        catalogModelId: "mcat_deepseek",
+        providerId: "prv_openrouter",
+        providerName: "OpenRouter",
+        externalModelKey: "deepseek/deepseek-chat",
+        displayName: "DeepSeek Chat",
+        capabilities: {
+          chat: true,
+          agent: false,
+          vision: false,
+          toolUse: true,
+          jsonMode: true,
+        },
+        contextWindow: 65_536,
+        maxOutputTokens: 8_192,
+        priorityRank: 10,
+        providerPriorityRank: 10,
+        defaultForChat: true,
+        defaultForAgent: false,
+        requiresCompanion: false,
+        requestsPerMinuteLimit: 60,
+        tokensPerDayLimit: 100_000,
+        tokensPerRequestLimit: 8_000,
+        runtimeStatus: "healthy" as const,
+        providerHealthStatus: "healthy" as const,
+        reasons: [
+          {
+            code: "eligible" as const,
+            message: "Model is eligible for this request.",
+          },
+        ],
+      },
+      eligibleCount: 1,
+      ineligibleCount: 0,
+    }));
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+      modelRoutingService: {
+        selectRoute,
+        listAttempts: vi.fn(),
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/routing/select",
+      cookies: { [SESSION_COOKIE_NAME]: "session_admin" },
+      payload: {
+        mode: "chat",
+        conversationId: "conv_1",
+        companionAvailable: false,
+        estimatedInputTokens: 100,
+        requestedOutputTokens: 200,
+        requestId: "route_api_test",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().model.registryModelId).toBe("mreg_deepseek");
+    expect(selectRoute).toHaveBeenCalledWith({
+      mode: "chat",
+      userId: "usr_seeded",
+      conversationId: "conv_1",
+      agentRunId: null,
+      companionAvailable: false,
+      estimatedInputTokens: 100,
+      requestedOutputTokens: 200,
+      requestId: "route_api_test",
+    });
+  });
+
+  it("blocks customer route selection attempts", async () => {
+    const selectRoute = vi.fn();
+    app = buildApp({
+      sessionService: createCustomerTestSessionService(),
+      modelRoutingService: {
+        selectRoute,
+        listAttempts: vi.fn(),
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/routing/select",
+      cookies: { [SESSION_COOKIE_NAME]: "session_customer" },
+      payload: {
+        mode: "chat",
+        companionAvailable: false,
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(selectRoute).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid routing payloads before service execution", async () => {
+    const selectRoute = vi.fn();
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+      modelRoutingService: {
+        selectRoute,
+        listAttempts: vi.fn(),
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/routing/select",
+      cookies: { [SESSION_COOKIE_NAME]: "session_admin" },
+      payload: {
+        mode: "invalid",
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(selectRoute).not.toHaveBeenCalled();
+  });
+
+  it("returns routing attempts to admins", async () => {
+    const listAttempts: ModelRoutingService["listAttempts"] = vi.fn(async (filters) => ({
+      items: [
+        {
+          id: "ratt_1",
+          requestId: "route_1",
+          userId: filters.userId ?? "usr_seeded",
+          conversationId: null,
+          agentRunId: null,
+          mode: "chat" as const,
+          registryModelId: "mreg_deepseek",
+          status: "selected" as const,
+          eligibleCount: 1,
+          ineligibleCount: 0,
+          reasonCode: null,
+          reasonMessage: null,
+          metadata: {},
+          createdAt: new Date("2026-07-19T00:00:00.000Z").toISOString(),
+        },
+      ],
+      page: filters.page,
+      pageSize: filters.pageSize,
+      total: 1,
+      hasNextPage: false,
+    }));
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+      modelRoutingService: {
+        selectRoute: vi.fn(),
+        listAttempts,
+      },
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/routing-attempts?userId=usr_seeded&pageSize=100",
+      cookies: { [SESSION_COOKIE_NAME]: "session_admin" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().items[0].requestId).toBe("route_1");
+    expect(listAttempts).toHaveBeenCalledWith({
+      userId: "usr_seeded",
+      conversationId: undefined,
+      agentRunId: undefined,
+      registryModelId: undefined,
+      status: undefined,
+      mode: undefined,
+      page: 1,
+      pageSize: 100,
+      sort: "createdAt",
+      direction: "desc",
+    });
+  });
+
+  it("blocks customer access to routing attempt diagnostics", async () => {
+    const customerApp = buildApp({
+      sessionService: createCustomerTestSessionService(),
+      modelRoutingService: {
+        selectRoute: vi.fn(),
+        listAttempts: vi.fn(),
+      },
+    });
+
+    const response = await customerApp.inject({
+      method: "GET",
+      url: "/api/v1/admin/routing-attempts",
+      cookies: {
+        [SESSION_COOKIE_NAME]: "session_customer",
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.message).toBe("Admin access required.");
+
+    await customerApp.close();
   });
 });
 
