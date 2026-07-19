@@ -20,6 +20,14 @@ export interface ModelRoutingLogger {
   error(payload: Record<string, unknown>, message: string): void;
 }
 
+export interface ModelRoutingMetrics {
+  observeRoutingAttempt(input: {
+    mode: "chat" | "agent";
+    status: string;
+    reasonCode?: string | null;
+  }): void;
+}
+
 export interface ModelRoutingService {
   selectRoute(input: SelectModelRouteInput): Promise<ModelRouteSelection>;
   listAttempts(filters: RoutingAttemptListFilters): Promise<RoutingAttemptListResponse>;

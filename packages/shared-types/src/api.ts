@@ -131,6 +131,7 @@ export interface MessageItem {
   content: MessageContent[];
   providerId?: string | null;
   modelId?: string | null;
+  registryModelId?: string | null;
   createdAt: string;
 }
 
@@ -306,6 +307,389 @@ export interface ProviderStatusEntry {
 
 export interface ProvidersResponse {
   providers: ProviderStatusEntry[];
+}
+
+export type AdminProviderStatus = "active" | "disabled" | "deprecated";
+export type AdminProviderCredentialStatus =
+  | "unchecked"
+  | "configured"
+  | "missing"
+  | "invalid";
+
+export interface AdminProviderItem {
+  id: string;
+  name: string;
+  baseType: string;
+  driverKey: string;
+  defaultSecretRef: string | null;
+  metadataJson: unknown;
+  status: AdminProviderStatus;
+  priorityRank: number;
+  credentialStatus: AdminProviderCredentialStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminProviderListResponse {
+  items: AdminProviderItem[];
+  page: number;
+  pageSize: number;
+  total: number;
+  hasNextPage: boolean;
+}
+
+export interface UpdateAdminProviderRequest {
+  name?: string;
+  status?: AdminProviderStatus;
+  priorityRank?: number;
+  defaultSecretRef?: string | null;
+  metadataJson?: Record<string, unknown> | null;
+}
+
+export interface AdminProviderCredentialItem {
+  id: string;
+  providerId: string;
+  secretRef: string;
+  status: AdminProviderCredentialStatus;
+  lastCheckedAt: string | null;
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+  lastFailureCode: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminProviderCredentialsResponse {
+  credentials: AdminProviderCredentialItem[];
+}
+
+export interface CheckAdminProviderCredentialRequest {
+  providerId?: string;
+  credentialId?: string;
+}
+
+export type AdminDiscoveryJobStatus = "running" | "succeeded" | "failed";
+export type AdminDiscoveryTriggerType = "manual" | "scheduled" | "internal";
+
+export interface AdminDiscoveryJobItem {
+  id: string;
+  providerId: string;
+  status: AdminDiscoveryJobStatus;
+  triggerType: AdminDiscoveryTriggerType;
+  startedAt: string;
+  completedAt: string | null;
+  discoveredCount: number;
+  upsertedCount: number;
+  skippedCount: number;
+  failureCode: string | null;
+  failureMessage: string | null;
+  createdByUserId: string | null;
+  metadata: unknown;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminDiscoveryJobListResponse {
+  items: AdminDiscoveryJobItem[];
+  page: number;
+  pageSize: number;
+  total: number;
+  hasNextPage: boolean;
+}
+
+export type AdminProviderSyncStatus =
+  | "never_synced"
+  | "syncing"
+  | "succeeded"
+  | "failed";
+
+export interface AdminProviderSyncStatusItem {
+  id: string;
+  providerId: string;
+  lastJobId: string | null;
+  status: AdminProviderSyncStatus;
+  lastStartedAt: string | null;
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+  lastFailureCode: string | null;
+  lastFailureMessage: string | null;
+  lastDiscoveredCount: number;
+  lastUpsertedCount: number;
+  updatedAt: string;
+}
+
+export interface AdminProviderSyncStatusListResponse {
+  items: AdminProviderSyncStatusItem[];
+  page: number;
+  pageSize: number;
+  total: number;
+  hasNextPage: boolean;
+}
+
+export interface RunAdminDiscoveryJobRequest {
+  providerId: string;
+  triggerType?: AdminDiscoveryTriggerType;
+}
+
+export interface AdminModelCapabilities {
+  chat: boolean;
+  agent: boolean;
+  vision: boolean;
+  toolUse: boolean;
+  jsonMode: boolean;
+}
+
+export type AdminModelCatalogCostTier = "free" | "paid" | "unknown";
+export type AdminModelCatalogReleaseStage =
+  | "stable"
+  | "preview"
+  | "experimental"
+  | "legacy";
+
+export interface AdminModelPricingMetadata {
+  inputPer1mUsdMicros: number | null;
+  outputPer1mUsdMicros: number | null;
+  currency: "USD";
+  raw: unknown;
+}
+
+export interface AdminModelCatalogItem {
+  id: string;
+  providerId: string;
+  externalModelKey: string;
+  displayName: string;
+  description: string | null;
+  capabilities: AdminModelCapabilities;
+  contextWindow: number | null;
+  maxOutputTokens: number | null;
+  costTier: AdminModelCatalogCostTier;
+  pricing: AdminModelPricingMetadata;
+  releaseStage: AdminModelCatalogReleaseStage;
+  releasedAt: string | null;
+  deprecatedAt: string | null;
+  deprecationReason: string | null;
+  providerMetadata: unknown;
+  firstDiscoveredAt: string;
+  lastDiscoveredAt: string;
+  lastChangedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminModelCatalogListResponse {
+  items: AdminModelCatalogItem[];
+  page: number;
+  pageSize: number;
+  total: number;
+  hasNextPage: boolean;
+}
+
+export type AdminModelRegistryStatus = "registered" | "archived";
+
+export interface AdminModelRegistryItem {
+  id: string;
+  catalogModelId: string;
+  status: AdminModelRegistryStatus;
+  approvedByUserId: string;
+  approvedAt: string;
+  archivedByUserId: string | null;
+  archivedAt: string | null;
+  archiveReason: string | null;
+  notes: string | null;
+  catalog: AdminModelCatalogItem;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminModelRegistryListResponse {
+  items: AdminModelRegistryItem[];
+  page: number;
+  pageSize: number;
+  total: number;
+  hasNextPage: boolean;
+}
+
+export interface RegisterAdminCatalogModelRequest {
+  catalogModelId: string;
+  notes?: string | null;
+}
+
+export interface AdminModelPolicyItem {
+  id: string;
+  registryModelId: string;
+  enabled: boolean;
+  visibleInSelector: boolean;
+  priorityRank: number;
+  defaultForChat: boolean;
+  defaultForAgent: boolean;
+  requiresCompanion: boolean;
+  requestsPerMinuteLimit: number | null;
+  tokensPerDayLimit: number | null;
+  tokensPerRequestLimit: number | null;
+  notes: string | null;
+  createdByUserId: string;
+  updatedByUserId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminModelPolicyListResponse {
+  items: AdminModelPolicyItem[];
+  page: number;
+  pageSize: number;
+  total: number;
+  hasNextPage: boolean;
+}
+
+export interface UpsertAdminModelPolicyRequest {
+  enabled?: boolean;
+  visibleInSelector?: boolean;
+  priorityRank?: number;
+  defaultForChat?: boolean;
+  defaultForAgent?: boolean;
+  requiresCompanion?: boolean;
+  requestsPerMinuteLimit?: number | null;
+  tokensPerDayLimit?: number | null;
+  tokensPerRequestLimit?: number | null;
+  notes?: string | null;
+}
+
+export interface ArchiveAdminRegistryModelRequest {
+  archiveReason?: string | null;
+}
+
+export type AdminModelRuntimeHealthStatus =
+  | "healthy"
+  | "degraded"
+  | "rate_limited"
+  | "open_circuit"
+  | "auth_invalid"
+  | "unknown";
+
+export interface AdminModelRuntimeHealthItem {
+  id: string;
+  registryModelId: string;
+  status: AdminModelRuntimeHealthStatus;
+  cooldownUntil: string | null;
+  consecutiveFailures: number;
+  lastFailureCode: string | null;
+  lastFailureAt: string | null;
+  lastSuccessAt: string | null;
+  lastCheckedAt: string | null;
+  reason: string | null;
+  updatedByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminModelRuntimeHealthListResponse {
+  items: AdminModelRuntimeHealthItem[];
+  page: number;
+  pageSize: number;
+  total: number;
+  hasNextPage: boolean;
+}
+
+export type AdminProviderHealthStatus =
+  | "healthy"
+  | "degraded"
+  | "unavailable"
+  | "auth_invalid"
+  | "unknown";
+
+export interface AdminProviderHealthItem {
+  id: string;
+  providerId: string;
+  status: AdminProviderHealthStatus;
+  cooldownUntil: string | null;
+  consecutiveFailures: number;
+  lastFailureCode: string | null;
+  lastFailureAt: string | null;
+  lastSuccessAt: string | null;
+  lastCheckedAt: string | null;
+  reason: string | null;
+  updatedByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminProviderHealthListResponse {
+  items: AdminProviderHealthItem[];
+  page: number;
+  pageSize: number;
+  total: number;
+  hasNextPage: boolean;
+}
+
+export type AdminRoutingAttemptStatus = "selected" | "no_eligible_models";
+
+export interface AdminRoutingAttemptItem {
+  id: string;
+  requestId: string;
+  userId: string;
+  conversationId: string | null;
+  agentRunId: string | null;
+  mode: "chat" | "agent";
+  registryModelId: string | null;
+  status: AdminRoutingAttemptStatus;
+  eligibleCount: number;
+  ineligibleCount: number;
+  reasonCode: string | null;
+  reasonMessage: string | null;
+  metadata: unknown;
+  createdAt: string;
+}
+
+export interface AdminRoutingAttemptsResponse {
+  items: AdminRoutingAttemptItem[];
+  page: number;
+  pageSize: number;
+  total: number;
+  hasNextPage: boolean;
+}
+
+export interface AdminModelUsageSummaryResponse {
+  requestCount: number;
+  successCount: number;
+  failureCount: number;
+  fallbackCount: number;
+  rateLimitCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  latencyMsTotal: number;
+  latencySampleCount: number;
+  averageLatencyMs: number | null;
+  costUsdMicros: number;
+}
+
+export interface AdminModelUsageCounterItem {
+  id: string;
+  registryModelId: string;
+  providerId: string;
+  bucketStart: string;
+  bucketGranularity: "hour" | "day";
+  requestCount: number;
+  successCount: number;
+  failureCount: number;
+  fallbackCount: number;
+  rateLimitCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  latencyMsTotal: number;
+  latencySampleCount: number;
+  averageLatencyMs: number | null;
+  costUsdMicros: number;
+  updatedAt: string;
+}
+
+export interface AdminModelUsageCounterListResponse {
+  items: AdminModelUsageCounterItem[];
+  page: number;
+  pageSize: number;
+  total: number;
+  hasNextPage: boolean;
 }
 
 export interface AvailableModelItem {

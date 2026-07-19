@@ -37,6 +37,7 @@ export interface MessageRecord {
   content: MessageContent[];
   providerId: string | null;
   modelId: string | null;
+  registryModelId: string | null;
   createdAt: string;
 }
 
@@ -46,6 +47,7 @@ export interface AppendMessageInput {
   content: MessageRecord["content"];
   providerId?: string | null;
   modelId?: string | null;
+  registryModelId?: string | null;
 }
 
 export function createInMemoryConversationRepository(): ConversationRepository {
@@ -115,6 +117,7 @@ export function createInMemoryConversationRepository(): ConversationRepository {
         content: input.content,
         providerId: input.providerId ?? null,
         modelId: input.modelId ?? null,
+        registryModelId: input.registryModelId ?? null,
         createdAt,
       };
 
@@ -265,6 +268,7 @@ export function createDatabaseConversationRepository(): ConversationRepository {
         content: row.contentJson as MessageRecord["content"],
         providerId: row.providerId,
         modelId: row.modelId,
+        registryModelId: row.registryModelId,
         createdAt: row.createdAt.toISOString(),
       }));
     },
@@ -291,6 +295,7 @@ export function createDatabaseConversationRepository(): ConversationRepository {
             contentJson: input.content,
             providerId: input.providerId ?? null,
             modelId: input.modelId ?? null,
+            registryModelId: input.registryModelId ?? null,
             sequenceNo: nextSequence,
           })
           .returning();
@@ -315,6 +320,7 @@ export function createDatabaseConversationRepository(): ConversationRepository {
         content: inserted.contentJson as MessageRecord["content"],
         providerId: inserted.providerId,
         modelId: inserted.modelId,
+        registryModelId: inserted.registryModelId,
         createdAt: inserted.createdAt.toISOString(),
       };
     },

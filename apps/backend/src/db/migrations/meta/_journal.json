@@ -141,6 +141,13 @@
       "when": 1784863200000,
       "tag": "0019_audit_event_admin_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1784949600000,
+      "tag": "0020_registry_chat_persistence",
+      "breakpoints": true
     }
   ]
 }

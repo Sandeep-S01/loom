@@ -17,7 +17,7 @@ import type { AuditService } from "./modules/audit/interfaces.js";
 import type { ProviderHealthService } from "./modules/provider-health/interfaces.js";
 import type { ModelDiscoveryService } from "./modules/model-discovery/interfaces.js";
 import type { SessionService } from "./modules/session/service.js";
-import { SESSION_COOKIE_NAME } from "./plugins/session.js";
+import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME, SESSION_COOKIE_NAME } from "./plugins/session.js";
 
 let app: FastifyInstance | undefined;
 
@@ -31,6 +31,7 @@ afterEach(async () => {
   delete process.env.GEMINI_API_KEY;
   delete process.env.METRICS_ENABLED;
   delete process.env.METRICS_TOKEN;
+  delete process.env.FRONTEND_URL;
   vi.useRealTimers();
 });
 
@@ -151,6 +152,20 @@ describe("session bootstrap", () => {
     });
   });
 
+  it("returns no content for optional session checks without an authenticated session", async () => {
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/session?optional=true",
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(response.body).toBe("");
+  });
+
   it("creates a session cookie for valid credentials", async () => {
     app = buildApp({
       sessionService: createStrictTestSessionService(),
@@ -198,6 +213,71 @@ describe("session bootstrap", () => {
 
     expect(sessionResponse.statusCode).toBe(200);
     expect(sessionResponse.json().user.id).toBe("usr_seeded");
+  });
+
+  it("requires a CSRF token for authenticated unsafe browser requests in production", async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    process.env.FRONTEND_URL = "https://app.loom.local";
+
+    try {
+      app = buildApp({
+        sessionService: createStrictTestSessionService(),
+      });
+
+      const sessionResponse = await app.inject({
+        method: "GET",
+        url: "/api/v1/session",
+        cookies: {
+          [SESSION_COOKIE_NAME]: "session_admin",
+        },
+      });
+      const csrfToken = sessionResponse.cookies.find(
+        (cookie) => cookie.name === CSRF_COOKIE_NAME,
+      )?.value;
+
+      expect(sessionResponse.statusCode).toBe(200);
+      expect(csrfToken).toEqual(expect.any(String));
+
+      const rejected = await app.inject({
+        method: "PATCH",
+        url: "/api/v1/session",
+        headers: {
+          origin: "https://app.loom.local",
+        },
+        cookies: {
+          [SESSION_COOKIE_NAME]: "session_admin",
+          [CSRF_COOKIE_NAME]: csrfToken!,
+        },
+        payload: {
+          displayName: "Sandeep Singh",
+        },
+      });
+
+      expect(rejected.statusCode).toBe(403);
+      expect(rejected.json().error.message).toBe("CSRF token is missing or invalid.");
+
+      const accepted = await app.inject({
+        method: "PATCH",
+        url: "/api/v1/session",
+        headers: {
+          origin: "https://app.loom.local",
+          [CSRF_HEADER_NAME]: csrfToken!,
+        },
+        cookies: {
+          [SESSION_COOKIE_NAME]: "session_admin",
+          [CSRF_COOKIE_NAME]: csrfToken!,
+        },
+        payload: {
+          displayName: "Sandeep Singh",
+        },
+      });
+
+      expect(accepted.statusCode).toBe(200);
+      expect(accepted.json().user.displayName).toBe("Sandeep Singh");
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
   });
 
   it("rejects invalid login credentials", async () => {

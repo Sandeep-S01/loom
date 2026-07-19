@@ -16,6 +16,7 @@ export interface SelectModelRouteInput {
   companionAvailable: boolean;
   estimatedInputTokens?: number;
   requestedOutputTokens?: number;
+  preferredRegistryModelId?: string | null;
   requestId?: string;
 }
 

@@ -5,8 +5,6 @@ import Link from "next/link";
 import {
   AlertTriangle,
   BarChart3,
-  ChevronLeft,
-  ChevronRight,
   CheckCircle2,
   Gauge,
   KeyRound,
@@ -19,27 +17,47 @@ import {
   Store,
 } from "lucide-react";
 import {
-  createModel,
-  deleteModel,
-  disableFreeMarketplaceModel,
-  enableFreeMarketplaceModel,
+  archiveAdminRegistryModel,
   getDashboard,
-  getModelAnalytics,
+  getAdminModelUsageSummary,
   getProvidersStatus,
   getSession,
-  listFailoverAttempts,
-  listFreeMarketplaceModels,
+  checkAdminProviderCredential,
+  listAdminModelUsageCounters,
+  listAdminModelCatalog,
+  listAdminModelPolicies,
+  listAdminModelRegistry,
+  listAdminModelRuntimeHealth,
+  listAdminProviderHealth,
+  listAdminProviderSyncStatus,
+  listAdminProviders,
+  listAdminRoutingAttempts,
   listModels,
   logout,
-  syncFreeMarketplaceModels,
-  updateModel,
+  registerAdminCatalogModel,
+  resetAdminModelRuntimeHealth,
+  resetAdminProviderHealth,
+  runAdminDiscoveryJob,
+  updateAdminProvider,
+  upsertAdminModelPolicy,
 } from "../lib/api";
 import type {
+  AdminProviderItem,
+  AdminModelCatalogListResponse,
+  AdminModelPolicyItem,
+  AdminModelPolicyListResponse,
+  AdminModelRegistryListResponse,
+  AdminModelRuntimeHealthItem,
+  AdminModelRuntimeHealthListResponse,
+  AdminModelUsageCounterListResponse,
+  AdminModelUsageSummaryResponse,
+  AdminProviderHealthItem,
+  AdminProviderHealthListResponse,
+  AdminProviderListResponse,
+  AdminProviderSyncStatusItem,
+  AdminProviderSyncStatusListResponse,
+  AdminRoutingAttemptsResponse,
   DashboardResponse,
-  CreateModelRequest,
-  FreeMarketplaceResponse,
-  ModelAnalyticsResponse,
-  ModelFailoverAttemptsResponse,
   ModelRegistryItem,
   ProvidersResponse,
   SessionResponse,
@@ -60,30 +78,6 @@ type AdminSection =
   | "failover"
   | "settings";
 
-type AttemptStatusFilter =
-  | "success"
-  | "failed"
-  | "skipped_cooldown"
-  | "blocked_quota";
-
-interface FailoverFilters {
-  page: number;
-  pageSize: number;
-  modelId: string;
-  status: "" | AttemptStatusFilter;
-  from: string;
-  to: string;
-}
-
-const INITIAL_FAILOVER_FILTERS: FailoverFilters = {
-  page: 1,
-  pageSize: 25,
-  modelId: "",
-  status: "",
-  from: "",
-  to: "",
-};
-
 const ADMIN_SECTIONS: Array<{
   id: AdminSection;
   label: string;
@@ -101,7 +95,7 @@ const ADMIN_SECTIONS: Array<{
 const ADMIN_SECTION_COPY: Record<AdminSection, string> = {
   overview: "Monitor routing readiness, provider health, and recent usage.",
   models: "Control which registry models can serve customer chat.",
-  marketplace: "Sync and enable free catalog models for backend routing.",
+  marketplace: "Review discovered free catalog models and approve them for routing.",
   providers: "Check provider credentials and configured model coverage.",
   usage: "Review request volume, error count, token usage, and estimated cost.",
   failover: "Audit provider attempts, failures, cooldowns, and routing traces.",
@@ -114,30 +108,99 @@ export function AdminConsoleShell() {
   const [session, setSession] = useState<SessionResponse | null>(null);
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
   const [providers, setProviders] = useState<ProvidersResponse | null>(null);
-  const [models, setModels] = useState<ModelRegistryItem[]>([]);
-  const [marketplace, setMarketplace] = useState<FreeMarketplaceResponse>({
-    models: [],
-    lastSyncedAt: null,
-  });
-  const [analytics, setAnalytics] = useState<ModelAnalyticsResponse>({
-    summary: [],
-    series: [],
-  });
-  const [failoverAttempts, setFailoverAttempts] =
-    useState<ModelFailoverAttemptsResponse>({
+  const [adminProviders, setAdminProviders] =
+    useState<AdminProviderListResponse>({
       items: [],
       page: 1,
       pageSize: 25,
       total: 0,
       hasNextPage: false,
     });
-  const [failoverFilters, setFailoverFilters] =
-    useState<FailoverFilters>(INITIAL_FAILOVER_FILTERS);
+  const [providerSyncStatus, setProviderSyncStatus] =
+    useState<AdminProviderSyncStatusListResponse>({
+      items: [],
+      page: 1,
+      pageSize: 25,
+      total: 0,
+      hasNextPage: false,
+    });
+  const [adminCatalog, setAdminCatalog] =
+    useState<AdminModelCatalogListResponse>({
+      items: [],
+      page: 1,
+      pageSize: 25,
+      total: 0,
+      hasNextPage: false,
+    });
+  const [adminRegistry, setAdminRegistry] =
+    useState<AdminModelRegistryListResponse>({
+      items: [],
+      page: 1,
+      pageSize: 25,
+      total: 0,
+      hasNextPage: false,
+    });
+  const [adminPolicies, setAdminPolicies] =
+    useState<AdminModelPolicyListResponse>({
+      items: [],
+      page: 1,
+      pageSize: 25,
+      total: 0,
+      hasNextPage: false,
+    });
+  const [modelRuntimeHealth, setModelRuntimeHealth] =
+    useState<AdminModelRuntimeHealthListResponse>({
+      items: [],
+      page: 1,
+      pageSize: 25,
+      total: 0,
+      hasNextPage: false,
+    });
+  const [providerHealth, setProviderHealth] =
+    useState<AdminProviderHealthListResponse>({
+      items: [],
+      page: 1,
+      pageSize: 25,
+      total: 0,
+      hasNextPage: false,
+    });
+  const [routingAttempts, setRoutingAttempts] =
+    useState<AdminRoutingAttemptsResponse>({
+      items: [],
+      page: 1,
+      pageSize: 25,
+      total: 0,
+      hasNextPage: false,
+    });
+  const [adminUsageSummary, setAdminUsageSummary] =
+    useState<AdminModelUsageSummaryResponse>({
+      requestCount: 0,
+      successCount: 0,
+      failureCount: 0,
+      fallbackCount: 0,
+      rateLimitCount: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      latencyMsTotal: 0,
+      latencySampleCount: 0,
+      averageLatencyMs: null,
+      costUsdMicros: 0,
+    });
+  const [adminUsageCounters, setAdminUsageCounters] =
+    useState<AdminModelUsageCounterListResponse>({
+      items: [],
+      page: 1,
+      pageSize: 25,
+      total: 0,
+      hasNextPage: false,
+    });
+  const [models, setModels] = useState<ModelRegistryItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
 
-  const loadAdminData = useCallback(async (filters: FailoverFilters) => {
+  const loadAdminData = useCallback(async () => {
     setError(null);
     const sessionResponse = await getSession();
     if (sessionResponse.user.role !== "admin") {
@@ -149,54 +212,61 @@ export function AdminConsoleShell() {
     const [
       dashboardResponse,
       providersResponse,
+      adminProvidersResponse,
+      providerSyncStatusResponse,
+      adminCatalogResponse,
+      adminRegistryResponse,
+      adminPoliciesResponse,
+      modelRuntimeHealthResponse,
+      providerHealthResponse,
+      routingAttemptsResponse,
+      adminUsageSummaryResponse,
+      adminUsageCountersResponse,
       modelsResponse,
-      marketplaceResponse,
-      analyticsResponse,
-      failoverAttemptsResponse,
     ] = await Promise.all([
       getDashboard(),
       getProvidersStatus(),
-      listModels({ includeDisabled: true }),
-      listFreeMarketplaceModels(),
-      getModelAnalytics({
+      listAdminProviders({ pageSize: 100 }),
+      listAdminProviderSyncStatus({ pageSize: 100 }),
+      listAdminModelCatalog({ pageSize: 100 }),
+      listAdminModelRegistry({ pageSize: 100 }),
+      listAdminModelPolicies({ pageSize: 100 }),
+      listAdminModelRuntimeHealth({ pageSize: 100 }),
+      listAdminProviderHealth({ pageSize: 100 }),
+      listAdminRoutingAttempts({ pageSize: 50 }),
+      getAdminModelUsageSummary({
+        from: weekAgo.toISOString(),
+        to: now.toISOString(),
+      }),
+      listAdminModelUsageCounters({
         from: weekAgo.toISOString(),
         to: now.toISOString(),
         granularity: "day",
+        pageSize: 50,
       }),
-      listFailoverAttempts(toFailoverQuery(filters)),
+      listModels({ includeDisabled: true }),
     ]);
 
     setSession(sessionResponse);
     setDashboard(dashboardResponse);
     setProviders(providersResponse);
+    setAdminProviders(adminProvidersResponse);
+    setProviderSyncStatus(providerSyncStatusResponse);
+    setAdminCatalog(adminCatalogResponse);
+    setAdminRegistry(adminRegistryResponse);
+    setAdminPolicies(adminPoliciesResponse);
+    setModelRuntimeHealth(modelRuntimeHealthResponse);
+    setProviderHealth(providerHealthResponse);
+    setRoutingAttempts(routingAttemptsResponse);
+    setAdminUsageSummary(adminUsageSummaryResponse);
+    setAdminUsageCounters(adminUsageCountersResponse);
     setModels(modelsResponse.models);
-    setMarketplace(marketplaceResponse);
-    setAnalytics(analyticsResponse);
-    setFailoverAttempts(failoverAttemptsResponse);
   }, []);
-
-  async function loadFailoverData(nextFilters: FailoverFilters) {
-    setPendingAction("failover:query");
-    setError(null);
-    setFailoverFilters(nextFilters);
-    try {
-      const response = await listFailoverAttempts(toFailoverQuery(nextFilters));
-      setFailoverAttempts(response);
-    } catch (loadError) {
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "Failed to load failover attempts.",
-      );
-    } finally {
-      setPendingAction(null);
-    }
-  }
 
   useEffect(() => {
     let mounted = true;
     setIsLoading(true);
-    loadAdminData(INITIAL_FAILOVER_FILTERS)
+    loadAdminData()
       .catch((loadError) => {
         if (mounted) {
           const message =
@@ -237,15 +307,12 @@ export function AdminConsoleShell() {
     const configuredProviders =
       providers?.providers.filter((provider) => provider.keyConfigured).length ?? 0;
     const providerCount = providers?.providers.length ?? 0;
-    const usage = analytics.summary.reduce(
-      (total, item) => ({
-        requests: total.requests + item.requestCount,
-        errors: total.errors + item.errorCount,
-        tokens: total.tokens + item.totalTokens,
-        cost: total.cost + item.costUsdMicros,
-      }),
-      { requests: 0, errors: 0, tokens: 0, cost: 0 },
-    );
+    const usage = {
+      requests: adminUsageSummary.requestCount,
+      errors: adminUsageSummary.failureCount,
+      tokens: adminUsageSummary.totalTokens,
+      cost: adminUsageSummary.costUsdMicros,
+    };
     const errorRate = usage.requests > 0 ? usage.errors / usage.requests : 0;
     const criticalIssueCount =
       (dashboard?.providerSummary.eligibleCount ?? 0) === 0 ? 1 : 0;
@@ -263,7 +330,7 @@ export function AdminConsoleShell() {
       disabledModels: disabledModels.length,
       eligibleModels: dashboard?.providerSummary.eligibleCount ?? 0,
       errorRate,
-      freeModels: marketplace.models.length,
+      freeModels: adminCatalog.items.filter((model) => model.costTier === "free").length,
       openCircuitModels: openCircuitModels.length,
       configuredProviders,
       providerCount,
@@ -271,17 +338,17 @@ export function AdminConsoleShell() {
       errors: usage.errors,
       tokens: usage.tokens,
       costUsdMicros: usage.cost,
-      lastMarketplaceSync: marketplace.lastSyncedAt,
+      lastMarketplaceSync: latestSyncSuccess(providerSyncStatus.items),
       warningCount,
     };
-  }, [analytics.summary, dashboard, marketplace, models, providers]);
+  }, [adminCatalog.items, adminUsageSummary, dashboard, models, providerSyncStatus.items, providers]);
 
   async function runAction(actionId: string, action: () => Promise<void>) {
     setPendingAction(actionId);
     setError(null);
     try {
       await action();
-      await loadAdminData(failoverFilters);
+      await loadAdminData();
     } catch (actionError) {
       setError(
         actionError instanceof Error ? actionError.message : "Admin action failed.",
@@ -424,9 +491,7 @@ export function AdminConsoleShell() {
             </StatusPill>
             <Button
               disabled={pendingAction === "refresh"}
-              onClick={() =>
-                void runAction("refresh", () => loadAdminData(failoverFilters))
-              }
+              onClick={() => void runAction("refresh", () => loadAdminData())}
               size="sm"
               type="button"
               variant="secondary"
@@ -446,24 +511,20 @@ export function AdminConsoleShell() {
           ) : null}
           {activeSection === "models" ? (
             <AdminModels
-              models={models}
-              providers={providers}
-              onCreate={(payload) =>
-                runAction("create:model", async () => {
-                  await createModel(payload);
+              policies={adminPolicies}
+              providers={adminProviders}
+              registry={adminRegistry}
+              onArchive={(registryModelId) =>
+                runAction(`registry:archive:${registryModelId}`, async () => {
+                  await archiveAdminRegistryModel(
+                    registryModelId,
+                    "Archived from admin registry.",
+                  );
                 })
               }
-              onDelete={(modelId) =>
-                runAction(`delete:${modelId}`, async () => {
-                  await deleteModel(modelId);
-                })
-              }
-              onToggle={(model) =>
-                runAction(`toggle:${model.id}`, async () => {
-                  await updateModel(model.id, {
-                    adminStatus:
-                      model.adminStatus === "active" ? "disabled" : "active",
-                  });
+              onSavePolicy={(registryModelId, payload) =>
+                runAction(`policy:save:${registryModelId}`, async () => {
+                  await upsertAdminModelPolicy(registryModelId, payload);
                 })
               }
               pendingAction={pendingAction}
@@ -471,38 +532,67 @@ export function AdminConsoleShell() {
           ) : null}
           {activeSection === "marketplace" ? (
             <AdminMarketplace
-              marketplace={marketplace}
-              onDisable={(modelId) =>
-                runAction(`market:disable:${modelId}`, async () => {
-                  await disableFreeMarketplaceModel(modelId);
-                })
-              }
-              onEnable={(modelId) =>
-                runAction(`market:enable:${modelId}`, async () => {
-                  await enableFreeMarketplaceModel(modelId);
-                })
-              }
-              onSync={() =>
-                runAction("market:sync", async () => {
-                  await syncFreeMarketplaceModels();
+              catalog={adminCatalog}
+              providers={adminProviders}
+              registry={adminRegistry}
+              onApprove={(catalogModelId) =>
+                runAction(`catalog:approve:${catalogModelId}`, async () => {
+                  await registerAdminCatalogModel({ catalogModelId });
                 })
               }
               pendingAction={pendingAction}
             />
           ) : null}
           {activeSection === "providers" ? (
-            <AdminProviders providers={providers} />
+            <AdminProviders
+              providerModels={providers}
+              providers={adminProviders}
+              syncStatus={providerSyncStatus}
+              onCheckCredential={(providerId) =>
+                runAction(`provider:check:${providerId}`, async () => {
+                  await checkAdminProviderCredential({ providerId });
+                })
+              }
+              onRunDiscovery={(providerId) =>
+                runAction(`provider:discover:${providerId}`, async () => {
+                  await runAdminDiscoveryJob(providerId);
+                })
+              }
+              onUpdateProvider={(providerId, payload) =>
+                runAction(`provider:update:${providerId}`, async () => {
+                  await updateAdminProvider(providerId, payload);
+                })
+              }
+              pendingAction={pendingAction}
+            />
           ) : null}
           {activeSection === "usage" ? (
-            <AdminUsage analytics={analytics} models={models} />
+            <AdminUsage
+              counters={adminUsageCounters}
+              providers={adminProviders}
+              registry={adminRegistry}
+              summary={adminUsageSummary}
+            />
           ) : null}
           {activeSection === "failover" ? (
             <AdminFailover
-              attempts={failoverAttempts}
-              filters={failoverFilters}
-              isLoading={pendingAction === "failover:query"}
-              models={models}
-              onChangeFilters={(nextFilters) => void loadFailoverData(nextFilters)}
+              modelRuntimeHealth={modelRuntimeHealth}
+              onResetModelHealth={(registryModelId) =>
+                runAction(`model-health:reset:${registryModelId}`, async () => {
+                  await resetAdminModelRuntimeHealth(registryModelId);
+                })
+              }
+              onResetProviderHealth={(providerId) =>
+                runAction(`provider-health:reset:${providerId}`, async () => {
+                  await resetAdminProviderHealth(providerId);
+                })
+              }
+              pendingAction={pendingAction}
+              providerHealth={providerHealth}
+              providers={adminProviders}
+              registry={adminRegistry}
+              routingAttempts={routingAttempts}
+              usageSummary={adminUsageSummary}
             />
           ) : null}
           {activeSection === "settings" ? <AdminSettings /> : null}
@@ -510,25 +600,6 @@ export function AdminConsoleShell() {
       </section>
     </div>
   );
-}
-
-function toFailoverQuery(filters: FailoverFilters) {
-  return {
-    page: filters.page,
-    pageSize: filters.pageSize,
-    modelId: filters.modelId || undefined,
-    status: filters.status || undefined,
-    from: filters.from ? dateStartIso(filters.from) : undefined,
-    to: filters.to ? dateEndIso(filters.to) : undefined,
-  };
-}
-
-function dateStartIso(dateValue: string) {
-  return new Date(`${dateValue}T00:00:00`).toISOString();
-}
-
-function dateEndIso(dateValue: string) {
-  return new Date(`${dateValue}T23:59:59.999`).toISOString();
 }
 
 function AdminOverview({
@@ -689,439 +760,590 @@ function AdminOverview({
 }
 
 function AdminModels({
-  models,
+  policies,
   providers,
-  onCreate,
-  onDelete,
-  onToggle,
+  registry,
+  onArchive,
+  onSavePolicy,
   pendingAction,
 }: {
-  models: ModelRegistryItem[];
-  providers: ProvidersResponse | null;
-  onCreate: (payload: CreateModelRequest) => void;
-  onDelete: (modelId: string) => void;
-  onToggle: (model: ModelRegistryItem) => void;
+  policies: AdminModelPolicyListResponse;
+  providers: AdminProviderListResponse;
+  registry: AdminModelRegistryListResponse;
+  onArchive: (registryModelId: string) => void;
+  onSavePolicy: (
+    registryModelId: string,
+    payload: {
+      enabled: boolean;
+      visibleInSelector: boolean;
+      priorityRank: number;
+      defaultForChat: boolean;
+      defaultForAgent: boolean;
+      requiresCompanion: boolean;
+      requestsPerMinuteLimit: number | null;
+      tokensPerDayLimit: number | null;
+      tokensPerRequestLimit: number | null;
+      notes: string | null;
+    },
+  ) => void;
   pendingAction: string | null;
 }) {
   const [query, setQuery] = useState("");
-  const [isAddOpen, setIsAddOpen] = useState(false);
   const [providerId, setProviderId] = useState("");
-  const [providerModelId, setProviderModelId] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [secretRef, setSecretRef] = useState("");
-  const [priorityRank, setPriorityRank] = useState("1");
-  const [rpmLimit, setRpmLimit] = useState("");
-  const [tokensLimit, setTokensLimit] = useState("");
-  const [adminStatus, setAdminStatus] = useState<"active" | "disabled">("active");
-  const [supportsChat, setSupportsChat] = useState(true);
-  const [supportsAgent, setSupportsAgent] = useState(false);
-  const [supportsVision, setSupportsVision] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "disabled">("all");
-  const providerEntries = providers?.providers ?? [];
-  const selectedProviderId = providerId || providerEntries[0]?.id || "";
-  const filteredModels = useMemo(
-    () =>
-      models.filter((model) => {
-        const matchesStatus =
-          statusFilter === "all" || model.effectiveStatus === statusFilter;
-        const searchable = [
-          model.displayName,
-          model.providerName,
-          model.providerModelId,
-          model.effectiveStatus,
-          model.runtimeStatus,
-        ]
-          .join(" ")
-          .toLowerCase();
-        return matchesStatus && searchable.includes(query.trim().toLowerCase());
-      }),
-    [models, query, statusFilter],
+  const [selectedRegistryId, setSelectedRegistryId] = useState<string | null>(null);
+  const providerNameById = useMemo(
+    () => new Map(providers.items.map((provider) => [provider.id, provider.name])),
+    [providers.items],
   );
-
-  function resetForm() {
-    setProviderId("");
-    setProviderModelId("");
-    setDisplayName("");
-    setSecretRef("");
-    setPriorityRank("1");
-    setRpmLimit("");
-    setTokensLimit("");
-    setAdminStatus("active");
-    setSupportsChat(true);
-    setSupportsAgent(false);
-    setSupportsVision(false);
-  }
-
-  function handleCreateModel() {
-    onCreate({
-      providerId: selectedProviderId,
-      providerModelId: providerModelId.trim(),
-      displayName: displayName.trim(),
-      secretRef: secretRef.trim() || null,
-      priorityRank: Number(priorityRank) || 1,
-      supportsChat,
-      supportsAgent,
-      supportsVision,
-      adminStatus,
-      requestsPerMinuteLimit: rpmLimit.trim() ? Number(rpmLimit) : null,
-      tokensPerDayLimit: tokensLimit.trim() ? Number(tokensLimit) : null,
-      costInputPer1mUsdMicros: null,
-      costOutputPer1mUsdMicros: null,
+  const policyByRegistryId = useMemo(
+    () => new Map(policies.items.map((policy) => [policy.registryModelId, policy])),
+    [policies.items],
+  );
+  const registeredItems = registry.items.filter((item) => item.status === "registered");
+  const filteredModels = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return registeredItems.filter((entry) => {
+      const matchesProvider = !providerId || entry.catalog.providerId === providerId;
+      const providerName =
+        providerNameById.get(entry.catalog.providerId) ?? entry.catalog.providerId;
+      const policy = policyByRegistryId.get(entry.id);
+      const searchable = [
+        entry.catalog.displayName,
+        entry.catalog.externalModelKey,
+        providerName,
+        entry.status,
+        policy?.enabled ? "enabled" : "disabled",
+        policy?.visibleInSelector ? "visible" : "hidden",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return matchesProvider && searchable.includes(normalizedQuery);
     });
-    resetForm();
-    setIsAddOpen(false);
-  }
+  }, [policyByRegistryId, providerId, providerNameById, query, registeredItems]);
+  const selectedEntry =
+    filteredModels.find((entry) => entry.id === selectedRegistryId) ??
+    filteredModels[0] ??
+    null;
+  const selectedPolicy = selectedEntry
+    ? policyByRegistryId.get(selectedEntry.id) ?? null
+    : null;
 
   return (
-    <section className="overflow-hidden rounded-lg border border-[color:var(--color-border-subtle)] bg-surface">
-      <div className="flex flex-col gap-3 border-b border-[color:var(--color-border-subtle)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-sm font-semibold text-text-primary">Model registry</h2>
-          <p className="mt-1 text-xs text-text-secondary">
-            {filteredModels.length} of {models.length} models shown.
-          </p>
-        </div>
-        <div className="grid gap-2 sm:grid-cols-[220px_140px_auto]">
-          <input
-            className="ui-input h-9 px-3 text-sm"
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search models"
-            value={query}
-          />
-          <select
-            className="ui-input h-9 px-3 text-sm"
-            onChange={(event) =>
-              setStatusFilter(event.target.value as "all" | "active" | "disabled")
-            }
-            value={statusFilter}
-          >
-            <option value="all">All statuses</option>
-            <option value="active">Active</option>
-            <option value="disabled">Disabled</option>
-          </select>
-          <Button
-            disabled={providerEntries.length === 0}
-            onClick={() => setIsAddOpen((current) => !current)}
-            size="sm"
-            type="button"
-            variant="primary"
-          >
-            Add model
-          </Button>
-        </div>
-      </div>
-      {isAddOpen ? (
-        <div className="border-b border-[color:var(--color-border-subtle)] bg-[color:var(--color-surface-panel-muted)]/40 px-4 py-4">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <label className="space-y-1.5">
-              <span className="text-[11px] font-medium text-text-secondary">Provider</span>
-              <select
-                className="ui-input h-10 w-full px-3 text-sm"
-                onChange={(event) => setProviderId(event.target.value)}
-                value={selectedProviderId}
-              >
-                {providerEntries.map((provider) => (
-                  <option key={provider.id} value={provider.id}>
-                    {provider.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="space-y-1.5">
-              <span className="text-[11px] font-medium text-text-secondary">Provider model ID</span>
-              <input
-                className="ui-input h-10 w-full px-3 text-sm"
-                onChange={(event) => setProviderModelId(event.target.value)}
-                placeholder="openai/gpt-4o-mini"
-                value={providerModelId}
-              />
-            </label>
-            <label className="space-y-1.5">
-              <span className="text-[11px] font-medium text-text-secondary">Display name</span>
-              <input
-                className="ui-input h-10 w-full px-3 text-sm"
-                onChange={(event) => setDisplayName(event.target.value)}
-                placeholder="GPT 4o Mini"
-                value={displayName}
-              />
-            </label>
-            <label className="space-y-1.5">
-              <span className="text-[11px] font-medium text-text-secondary">Secret ref</span>
-              <input
-                className="ui-input h-10 w-full px-3 text-sm"
-                onChange={(event) => setSecretRef(event.target.value.toUpperCase())}
-                placeholder="OPENROUTER_API_KEY"
-                value={secretRef}
-              />
-            </label>
-            <label className="space-y-1.5">
-              <span className="text-[11px] font-medium text-text-secondary">Priority</span>
-              <input
-                className="ui-input h-10 w-full px-3 text-sm"
-                inputMode="numeric"
-                onChange={(event) => setPriorityRank(event.target.value)}
-                value={priorityRank}
-              />
-            </label>
-            <label className="space-y-1.5">
-              <span className="text-[11px] font-medium text-text-secondary">Requests / minute</span>
-              <input
-                className="ui-input h-10 w-full px-3 text-sm"
-                inputMode="numeric"
-                onChange={(event) => setRpmLimit(event.target.value)}
-                placeholder="Optional"
-                value={rpmLimit}
-              />
-            </label>
-            <label className="space-y-1.5">
-              <span className="text-[11px] font-medium text-text-secondary">Tokens / day</span>
-              <input
-                className="ui-input h-10 w-full px-3 text-sm"
-                inputMode="numeric"
-                onChange={(event) => setTokensLimit(event.target.value)}
-                placeholder="Optional"
-                value={tokensLimit}
-              />
-            </label>
-            <label className="space-y-1.5">
-              <span className="text-[11px] font-medium text-text-secondary">Status</span>
-              <select
-                className="ui-input h-10 w-full px-3 text-sm"
-                onChange={(event) =>
-                  setAdminStatus(event.target.value as "active" | "disabled")
-                }
-                value={adminStatus}
-              >
-                <option value="active">Active</option>
-                <option value="disabled">Disabled</option>
-              </select>
-            </label>
+    <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_420px]">
+      <section className="overflow-hidden rounded-lg border border-[color:var(--color-border-subtle)] bg-surface">
+        <div className="flex flex-col gap-3 border-b border-[color:var(--color-border-subtle)] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-text-primary">Model registry</h2>
+            <p className="mt-1 text-xs text-text-secondary">
+              {filteredModels.length} of {registeredItems.length} approved models shown.
+            </p>
           </div>
-          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-wrap gap-4">
-              {[
-                ["Chat", supportsChat, setSupportsChat],
-                ["Agent", supportsAgent, setSupportsAgent],
-                ["Vision", supportsVision, setSupportsVision],
-              ].map(([label, checked, setter]) => (
-                <label className="flex items-center gap-2 text-sm text-text-secondary" key={label as string}>
-                  <input
-                    checked={checked as boolean}
-                    className="h-4 w-4 accent-accent"
-                    onChange={(event) =>
-                      (setter as (value: boolean) => void)(event.target.checked)
-                    }
-                    type="checkbox"
-                  />
-                  {label as string}
-                </label>
+          <div className="grid gap-2 sm:grid-cols-[minmax(0,220px)_170px]">
+            <input
+              className="ui-input h-9 px-3 text-sm"
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search registry"
+              value={query}
+            />
+            <select
+              className="ui-input h-9 px-3 text-sm"
+              onChange={(event) => setProviderId(event.target.value)}
+              value={providerId}
+            >
+              <option value="">All providers</option>
+              {providers.items.map((provider) => (
+                <option key={provider.id} value={provider.id}>
+                  {provider.name}
+                </option>
               ))}
-            </div>
-            <div className="flex gap-2">
-              <Button
-                onClick={() => {
-                  resetForm();
-                  setIsAddOpen(false);
-                }}
-                size="sm"
-                type="button"
-                variant="secondary"
-              >
-                Cancel
-              </Button>
-              <Button
-                disabled={
-                  pendingAction === "create:model" ||
-                  !selectedProviderId ||
-                  !providerModelId.trim() ||
-                  !displayName.trim()
-                }
-                onClick={handleCreateModel}
-                size="sm"
-                type="button"
-                variant="primary"
-              >
-                {pendingAction === "create:model" ? "Adding..." : "Create model"}
-              </Button>
-            </div>
+            </select>
           </div>
         </div>
-      ) : null}
-      {models.length === 0 ? (
-        <div className="p-5">
-          <EmptyState
-            description="Add a backend-managed model to make it available for customer chat routing."
-            title="No models configured"
-          />
-        </div>
-      ) : null}
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[820px] text-left text-xs">
-          <thead className="border-b border-[color:var(--color-border-subtle)] bg-[color:var(--color-surface-panel-muted)]/60 text-[10px] uppercase tracking-[0.14em] text-text-muted">
-            <tr>
-              <th className="px-4 py-3 font-semibold">Model</th>
-              <th className="px-4 py-3 font-semibold">Provider</th>
-              <th className="px-4 py-3 font-semibold">Status</th>
-              <th className="px-4 py-3 font-semibold">Cost</th>
-              <th className="px-4 py-3 text-right font-semibold">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[color:var(--color-border-subtle)]">
-            {filteredModels.map((model) => (
-              <tr className="hover:bg-bg-hover" key={model.id}>
-                <td className="max-w-[260px] px-4 py-3">
-                  <p className="truncate text-sm font-medium text-text-primary">
-                    {model.displayName}
-                  </p>
-                  <p className="mt-0.5 truncate font-mono text-[10px] text-text-muted">
-                    {model.providerModelId}
-                  </p>
-                </td>
-                <td className="px-4 py-3 text-text-secondary">{model.providerName}</td>
-                <td className="px-4 py-3">
-                  <div className="flex flex-wrap gap-1.5">
-                    <StatusPill tone={model.effectiveStatus === "active" ? "success" : "neutral"}>
-                      {model.effectiveStatus}
-                    </StatusPill>
-                    {model.runtimeStatus !== "healthy" ? (
-                      <StatusPill tone="warning">{model.runtimeStatus}</StatusPill>
-                    ) : null}
-                  </div>
-                </td>
-                <td className="px-4 py-3">
-                  <StatusPill tone={model.costTier === "free" ? "success" : "warning"}>
-                    {model.costTier}
-                  </StatusPill>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      disabled={pendingAction === `toggle:${model.id}`}
-                      onClick={() => onToggle(model)}
-                      size="sm"
-                      type="button"
-                      variant={model.adminStatus === "active" ? "secondary" : "primary"}
-                    >
-                      {model.adminStatus === "active" ? "Disable" : "Enable"}
-                    </Button>
-                    <Button
-                      disabled={pendingAction === `delete:${model.id}`}
-                      onClick={() => onDelete(model.id)}
-                      size="sm"
-                      type="button"
-                      variant="ghost"
-                    >
-                      Delete
-                    </Button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {filteredModels.length === 0 ? (
-        <div className="border-t border-[color:var(--color-border-subtle)] p-5">
-          <EmptyState
-            title="No matching models"
-            description="Clear search or filters to return to the full registry."
-          />
-        </div>
-      ) : null}
-    </section>
-  );
-}
 
-function AdminMarketplace({
-  marketplace,
-  onDisable,
-  onEnable,
-  onSync,
-  pendingAction,
-}: {
-  marketplace: FreeMarketplaceResponse;
-  onDisable: (modelId: string) => void;
-  onEnable: (modelId: string) => void;
-  onSync: () => void;
-  pendingAction: string | null;
-}) {
-  return (
-    <section className="overflow-hidden rounded-lg border border-[color:var(--color-border-subtle)] bg-surface">
-      <div className="flex flex-col gap-3 border-b border-[color:var(--color-border-subtle)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-sm font-semibold text-text-primary">Free model catalog</h2>
-          <p className="mt-1 text-xs text-text-secondary">
-            {marketplace.models.length} models synced. Last sync{" "}
-            {marketplace.lastSyncedAt ? formatDateTime(marketplace.lastSyncedAt) : "never"}.
-          </p>
-        </div>
-          <Button
-            disabled={pendingAction === "market:sync"}
-            onClick={onSync}
-            size="sm"
-            type="button"
-            variant="primary"
-          >
-            Sync free models
-          </Button>
-      </div>
-      {marketplace.models.length === 0 ? (
-        <div className="p-5">
-          <EmptyState
-            title="No catalog models synced"
-            description="Sync the catalog to review available free models."
-          />
-        </div>
-      ) : (
+        {registeredItems.length === 0 ? (
+          <div className="p-5">
+            <EmptyState
+              description="Approve free models from Catalog before managing registry policy."
+              title="No models approved"
+            />
+          </div>
+        ) : null}
+
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-left text-xs">
+          <table className="w-full min-w-[900px] text-left text-xs">
             <thead className="border-b border-[color:var(--color-border-subtle)] bg-[color:var(--color-surface-panel-muted)]/60 text-[10px] uppercase tracking-[0.14em] text-text-muted">
               <tr>
                 <th className="px-4 py-3 font-semibold">Model</th>
                 <th className="px-4 py-3 font-semibold">Provider</th>
-                <th className="px-4 py-3 font-semibold">State</th>
-                <th className="px-4 py-3 font-semibold">Credential</th>
+                <th className="px-4 py-3 font-semibold">Policy</th>
+                <th className="px-4 py-3 font-semibold">Limits</th>
+                <th className="px-4 py-3 text-right font-semibold">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[color:var(--color-border-subtle)]">
+              {filteredModels.map((entry) => {
+                const policy = policyByRegistryId.get(entry.id);
+                const isSelected = selectedEntry?.id === entry.id;
+                return (
+                  <tr
+                    className={isSelected ? "bg-bg-hover" : "hover:bg-bg-hover"}
+                    key={entry.id}
+                  >
+                    <td className="max-w-[300px] px-4 py-3">
+                      <p className="truncate text-sm font-medium text-text-primary">
+                        {entry.catalog.displayName}
+                      </p>
+                      <p className="mt-0.5 truncate font-mono text-[10px] text-text-muted">
+                        {entry.catalog.externalModelKey}
+                      </p>
+                    </td>
+                    <td className="px-4 py-3 text-text-secondary">
+                      {providerNameById.get(entry.catalog.providerId) ?? entry.catalog.providerId}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-1.5">
+                        <StatusPill tone={policy?.enabled !== false ? "success" : "neutral"}>
+                          {policy?.enabled !== false ? "enabled" : "disabled"}
+                        </StatusPill>
+                        <StatusPill tone={policy?.visibleInSelector !== false ? "info" : "neutral"}>
+                          {policy?.visibleInSelector !== false ? "visible" : "hidden"}
+                        </StatusPill>
+                        {policy?.defaultForChat ? (
+                          <StatusPill tone="success">default chat</StatusPill>
+                        ) : null}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 font-mono text-[10px] text-text-secondary">
+                      <div>rpm: {policy?.requestsPerMinuteLimit ?? "none"}</div>
+                      <div className="mt-0.5">day: {policy?.tokensPerDayLimit ?? "none"}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          onClick={() => setSelectedRegistryId(entry.id)}
+                          size="sm"
+                          type="button"
+                          variant={isSelected ? "primary" : "secondary"}
+                        >
+                          Policy
+                        </Button>
+                        <Button
+                          disabled={pendingAction === `registry:archive:${entry.id}`}
+                          onClick={() => onArchive(entry.id)}
+                          size="sm"
+                          type="button"
+                          variant="ghost"
+                        >
+                          {pendingAction === `registry:archive:${entry.id}`
+                            ? "Archiving..."
+                            : "Archive"}
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {filteredModels.length === 0 && registeredItems.length > 0 ? (
+          <div className="border-t border-[color:var(--color-border-subtle)] p-5">
+            <EmptyState
+              title="No matching registry models"
+              description="Clear search or filters to return to approved models."
+            />
+          </div>
+        ) : null}
+      </section>
+
+      <section className="overflow-hidden rounded-lg border border-[color:var(--color-border-subtle)] bg-surface">
+        {selectedEntry ? (
+          <RegistryPolicyPanel
+            entry={selectedEntry}
+            isSaving={pendingAction === `policy:save:${selectedEntry.id}`}
+            onSave={(payload) => onSavePolicy(selectedEntry.id, payload)}
+            policy={selectedPolicy}
+            providerName={
+              providerNameById.get(selectedEntry.catalog.providerId) ??
+              selectedEntry.catalog.providerId
+            }
+          />
+        ) : (
+          <div className="p-5">
+          <EmptyState
+            title="No model selected"
+            description="Approve a catalog model, then select it here to configure policy."
+          />
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function RegistryPolicyPanel({
+  entry,
+  isSaving,
+  onSave,
+  policy,
+  providerName,
+}: {
+  entry: AdminModelRegistryListResponse["items"][number];
+  isSaving: boolean;
+  onSave: (payload: {
+    enabled: boolean;
+    visibleInSelector: boolean;
+    priorityRank: number;
+    defaultForChat: boolean;
+    defaultForAgent: boolean;
+    requiresCompanion: boolean;
+    requestsPerMinuteLimit: number | null;
+    tokensPerDayLimit: number | null;
+    tokensPerRequestLimit: number | null;
+    notes: string | null;
+  }) => void;
+  policy: AdminModelPolicyItem | null;
+  providerName: string;
+}) {
+  const [enabled, setEnabled] = useState(policy?.enabled ?? true);
+  const [visibleInSelector, setVisibleInSelector] = useState(
+    policy?.visibleInSelector ?? true,
+  );
+  const [priorityRank, setPriorityRank] = useState(String(policy?.priorityRank ?? 100));
+  const [defaultForChat, setDefaultForChat] = useState(policy?.defaultForChat ?? false);
+  const [defaultForAgent, setDefaultForAgent] = useState(policy?.defaultForAgent ?? false);
+  const [requiresCompanion, setRequiresCompanion] = useState(
+    policy?.requiresCompanion ?? false,
+  );
+  const [requestsPerMinuteLimit, setRequestsPerMinuteLimit] = useState(
+    policy?.requestsPerMinuteLimit == null ? "" : String(policy.requestsPerMinuteLimit),
+  );
+  const [tokensPerDayLimit, setTokensPerDayLimit] = useState(
+    policy?.tokensPerDayLimit == null ? "" : String(policy.tokensPerDayLimit),
+  );
+  const [tokensPerRequestLimit, setTokensPerRequestLimit] = useState(
+    policy?.tokensPerRequestLimit == null ? "" : String(policy.tokensPerRequestLimit),
+  );
+  const [notes, setNotes] = useState(policy?.notes ?? "");
+
+  useEffect(() => {
+    setEnabled(policy?.enabled ?? true);
+    setVisibleInSelector(policy?.visibleInSelector ?? true);
+    setPriorityRank(String(policy?.priorityRank ?? 100));
+    setDefaultForChat(policy?.defaultForChat ?? false);
+    setDefaultForAgent(policy?.defaultForAgent ?? false);
+    setRequiresCompanion(policy?.requiresCompanion ?? false);
+    setRequestsPerMinuteLimit(
+      policy?.requestsPerMinuteLimit == null ? "" : String(policy.requestsPerMinuteLimit),
+    );
+    setTokensPerDayLimit(
+      policy?.tokensPerDayLimit == null ? "" : String(policy.tokensPerDayLimit),
+    );
+    setTokensPerRequestLimit(
+      policy?.tokensPerRequestLimit == null ? "" : String(policy.tokensPerRequestLimit),
+    );
+    setNotes(policy?.notes ?? "");
+  }, [entry.id, policy]);
+
+  function nullableNumber(value: string) {
+    const trimmed = value.trim();
+    return trimmed ? Number(trimmed) : null;
+  }
+
+  return (
+    <div>
+      <div className="border-b border-[color:var(--color-border-subtle)] px-4 py-3">
+        <h2 className="text-sm font-semibold text-text-primary">Policy</h2>
+        <p className="mt-1 truncate text-xs text-text-secondary">
+          {entry.catalog.displayName} - {providerName}
+        </p>
+      </div>
+      <div className="space-y-4 px-4 py-4">
+        <div className="grid grid-cols-2 gap-3">
+          {[
+            ["Enabled", enabled, setEnabled],
+            ["Visible", visibleInSelector, setVisibleInSelector],
+            ["Chat default", defaultForChat, setDefaultForChat],
+            ["Agent default", defaultForAgent, setDefaultForAgent],
+            ["Requires companion", requiresCompanion, setRequiresCompanion],
+          ].map(([label, checked, setter]) => (
+            <label className="flex items-center gap-2 text-xs text-text-secondary" key={label as string}>
+              <input
+                checked={checked as boolean}
+                className="h-4 w-4 accent-accent"
+                onChange={(event) =>
+                  (setter as (value: boolean) => void)(event.target.checked)
+                }
+                type="checkbox"
+              />
+              {label as string}
+            </label>
+          ))}
+        </div>
+        <label className="block space-y-1.5">
+          <span className="text-[11px] font-medium text-text-secondary">Priority</span>
+          <input
+            className="ui-input h-10 w-full px-3 text-sm"
+            inputMode="numeric"
+            onChange={(event) => setPriorityRank(event.target.value)}
+            value={priorityRank}
+          />
+        </label>
+        <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
+          <PolicyNumberInput
+            label="Requests / minute"
+            onChange={setRequestsPerMinuteLimit}
+            value={requestsPerMinuteLimit}
+          />
+          <PolicyNumberInput
+            label="Tokens / day"
+            onChange={setTokensPerDayLimit}
+            value={tokensPerDayLimit}
+          />
+          <PolicyNumberInput
+            label="Tokens / request"
+            onChange={setTokensPerRequestLimit}
+            value={tokensPerRequestLimit}
+          />
+        </div>
+        <label className="block space-y-1.5">
+          <span className="text-[11px] font-medium text-text-secondary">Notes</span>
+          <textarea
+            className="ui-input min-h-[88px] w-full px-3 py-2 text-sm"
+            onChange={(event) => setNotes(event.target.value)}
+            value={notes}
+          />
+        </label>
+        <Button
+          disabled={isSaving}
+          onClick={() =>
+            onSave({
+              enabled,
+              visibleInSelector,
+              priorityRank: Number(priorityRank) || 100,
+              defaultForChat,
+              defaultForAgent,
+              requiresCompanion,
+              requestsPerMinuteLimit: nullableNumber(requestsPerMinuteLimit),
+              tokensPerDayLimit: nullableNumber(tokensPerDayLimit),
+              tokensPerRequestLimit: nullableNumber(tokensPerRequestLimit),
+              notes: notes.trim() || null,
+            })
+          }
+          type="button"
+          variant="primary"
+        >
+          {isSaving ? "Saving..." : "Save policy"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function PolicyNumberInput({
+  label,
+  onChange,
+  value,
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <label className="block space-y-1.5">
+      <span className="text-[11px] font-medium text-text-secondary">{label}</span>
+      <input
+        className="ui-input h-10 w-full px-3 text-sm"
+        inputMode="numeric"
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="No limit"
+        value={value}
+      />
+    </label>
+  );
+}
+
+function AdminMarketplace({
+  catalog,
+  providers,
+  registry,
+  onApprove,
+  pendingAction,
+}: {
+  catalog: AdminModelCatalogListResponse;
+  providers: AdminProviderListResponse;
+  registry: AdminModelRegistryListResponse;
+  onApprove: (catalogModelId: string) => void;
+  pendingAction: string | null;
+}) {
+  const [query, setQuery] = useState("");
+  const [providerId, setProviderId] = useState("");
+  const [capability, setCapability] = useState("");
+  const providerNameById = useMemo(
+    () => new Map(providers.items.map((provider) => [provider.id, provider.name])),
+    [providers.items],
+  );
+  const registeredCatalogIds = useMemo(
+    () =>
+      new Set(
+        registry.items
+          .filter((entry) => entry.status === "registered")
+          .map((entry) => entry.catalogModelId),
+      ),
+    [registry.items],
+  );
+  const filteredCatalog = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return catalog.items.filter((model) => {
+      const matchesProvider = !providerId || model.providerId === providerId;
+      const matchesCapability =
+        !capability ||
+        Boolean(model.capabilities[capability as keyof typeof model.capabilities]);
+      const searchable = [
+        model.displayName,
+        model.externalModelKey,
+        providerNameById.get(model.providerId) ?? model.providerId,
+        model.releaseStage,
+        model.costTier,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return matchesProvider && matchesCapability && searchable.includes(normalizedQuery);
+    });
+  }, [capability, catalog.items, providerId, providerNameById, query]);
+
+  return (
+    <section className="overflow-hidden rounded-lg border border-[color:var(--color-border-subtle)] bg-surface">
+      <div className="flex flex-col gap-3 border-b border-[color:var(--color-border-subtle)] px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
+        <div>
+          <h2 className="text-sm font-semibold text-text-primary">Model catalog</h2>
+          <p className="mt-1 text-xs text-text-secondary">
+            {filteredCatalog.length} of {catalog.total} discovered models shown. Approve free
+            models before users can route to them.
+          </p>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-[minmax(0,220px)_170px_140px]">
+          <input
+            className="ui-input h-9 px-3 text-sm"
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search catalog"
+            value={query}
+          />
+          <select
+            className="ui-input h-9 px-3 text-sm"
+            onChange={(event) => setProviderId(event.target.value)}
+            value={providerId}
+          >
+            <option value="">All providers</option>
+            {providers.items.map((provider) => (
+              <option key={provider.id} value={provider.id}>
+                {provider.name}
+              </option>
+            ))}
+          </select>
+          <select
+            className="ui-input h-9 px-3 text-sm"
+            onChange={(event) => setCapability(event.target.value)}
+            value={capability}
+          >
+            <option value="">All capabilities</option>
+            <option value="chat">Chat</option>
+            <option value="agent">Agent</option>
+            <option value="vision">Vision</option>
+            <option value="toolUse">Tools</option>
+            <option value="jsonMode">JSON</option>
+          </select>
+        </div>
+      </div>
+      {catalog.items.length === 0 ? (
+        <div className="p-5">
+          <EmptyState
+            title="No discovered models"
+            description="Run discovery from the Providers page, then approve discovered free models here."
+          />
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1040px] text-left text-xs">
+            <thead className="border-b border-[color:var(--color-border-subtle)] bg-[color:var(--color-surface-panel-muted)]/60 text-[10px] uppercase tracking-[0.14em] text-text-muted">
+              <tr>
+                <th className="px-4 py-3 font-semibold">Model</th>
+                <th className="px-4 py-3 font-semibold">Provider</th>
+                <th className="px-4 py-3 font-semibold">Capabilities</th>
+                <th className="px-4 py-3 font-semibold">Context</th>
+                <th className="px-4 py-3 font-semibold">Release</th>
+                <th className="px-4 py-3 font-semibold">Approval</th>
                 <th className="px-4 py-3 text-right font-semibold">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[color:var(--color-border-subtle)]">
-              {marketplace.models.map((model) => {
-                const enabled = model.adminStatus === "active";
+              {filteredCatalog.map((model) => {
+                const approved = registeredCatalogIds.has(model.id);
+                const deprecated = Boolean(model.deprecatedAt);
                 return (
                   <tr className="hover:bg-bg-hover" key={model.id}>
-                    <td className="max-w-[260px] px-4 py-3">
+                    <td className="max-w-[300px] px-4 py-3">
                       <p className="truncate text-sm font-medium text-text-primary">
                         {model.displayName}
                       </p>
                       <p className="mt-0.5 truncate font-mono text-[10px] text-text-muted">
-                        {model.owner ? `${model.owner} / ` : ""}
-                        {model.providerModelId}
+                        {model.externalModelKey}
                       </p>
                     </td>
-                    <td className="px-4 py-3 text-text-secondary">{model.providerName}</td>
                     <td className="px-4 py-3">
-                      <StatusPill tone={enabled ? "success" : "neutral"}>
-                        {enabled ? "Enabled" : model.marketplaceStatus ?? "Available"}
-                      </StatusPill>
+                      <p className="text-text-secondary">
+                        {providerNameById.get(model.providerId) ?? model.providerId}
+                      </p>
                     </td>
                     <td className="px-4 py-3">
-                      <StatusPill tone={model.secretConfigured ? "success" : "error"}>
-                        {model.secretConfigured ? "Ready" : "Key required"}
+                      <div className="flex flex-wrap gap-1.5">
+                        {formatCapabilities(model.capabilities).map((item) => (
+                          <StatusPill key={item} tone="neutral">
+                            {item}
+                          </StatusPill>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 font-mono text-[10px] text-text-secondary">
+                      {model.contextWindow ? formatNumber(model.contextWindow) : "n/a"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-1.5">
+                        <StatusPill tone={model.costTier === "free" ? "success" : "warning"}>
+                          {model.costTier}
+                        </StatusPill>
+                        <StatusPill tone={deprecated ? "warning" : "neutral"}>
+                          {deprecated ? "deprecated" : model.releaseStage}
+                        </StatusPill>
+                      </div>
+                      <p className="mt-1 text-[10px] text-text-muted">
+                        Last seen {formatDateTime(model.lastDiscoveredAt)}
+                      </p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <StatusPill tone={approved ? "success" : "neutral"}>
+                        {approved ? "approved" : "not approved"}
                       </StatusPill>
                     </td>
                     <td className="px-4 py-3 text-right">
                       <Button
                         disabled={
-                          pendingAction === `market:enable:${model.id}` ||
-                          pendingAction === `market:disable:${model.id}` ||
-                          !model.secretConfigured
+                          approved ||
+                          deprecated ||
+                          model.costTier !== "free" ||
+                          pendingAction === `catalog:approve:${model.id}`
                         }
-                        onClick={() => (enabled ? onDisable(model.id) : onEnable(model.id))}
+                        onClick={() => onApprove(model.id)}
                         size="sm"
                         type="button"
-                        variant={enabled ? "secondary" : "primary"}
+                        variant={approved ? "secondary" : "primary"}
                       >
-                        {enabled ? "Disable" : "Enable"}
+                        {approved
+                          ? "Approved"
+                          : pendingAction === `catalog:approve:${model.id}`
+                            ? "Approving..."
+                            : "Approve"}
                       </Button>
                     </td>
                   </tr>
@@ -1131,361 +1353,661 @@ function AdminMarketplace({
           </table>
         </div>
       )}
+      {filteredCatalog.length === 0 && catalog.items.length > 0 ? (
+        <div className="border-t border-[color:var(--color-border-subtle)] p-5">
+          <EmptyState
+            title="No matching catalog models"
+            description="Clear search or filters to return to the discovered catalog."
+          />
+        </div>
+      ) : null}
     </section>
   );
 }
 
-function AdminProviders({ providers }: { providers: ProvidersResponse | null }) {
-  const entries = providers?.providers ?? [];
+function AdminProviders({
+  providerModels,
+  providers,
+  syncStatus,
+  onCheckCredential,
+  onRunDiscovery,
+  onUpdateProvider,
+  pendingAction,
+}: {
+  providerModels: ProvidersResponse | null;
+  providers: AdminProviderListResponse;
+  syncStatus: AdminProviderSyncStatusListResponse;
+  onCheckCredential: (providerId: string) => void;
+  onRunDiscovery: (providerId: string) => void;
+  onUpdateProvider: (
+    providerId: string,
+    payload: { defaultSecretRef?: string | null; status?: AdminProviderItem["status"] },
+  ) => void;
+  pendingAction: string | null;
+}) {
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"" | AdminProviderItem["status"]>("");
+  const [secretRefs, setSecretRefs] = useState<Record<string, string>>({});
+  const publicProviderById = useMemo(
+    () => new Map((providerModels?.providers ?? []).map((provider) => [provider.id, provider])),
+    [providerModels],
+  );
+  const syncByProviderId = useMemo(
+    () => new Map(syncStatus.items.map((item) => [item.providerId, item])),
+    [syncStatus.items],
+  );
+
+  useEffect(() => {
+    setSecretRefs((current) => {
+      const next = { ...current };
+      for (const provider of providers.items) {
+        if (!(provider.id in next)) {
+          next[provider.id] = provider.defaultSecretRef ?? "";
+        }
+      }
+      return next;
+    });
+  }, [providers.items]);
+
+  const filteredProviders = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return providers.items.filter((provider) => {
+      const matchesStatus = !statusFilter || provider.status === statusFilter;
+      const searchable = [
+        provider.name,
+        provider.driverKey,
+        provider.baseType,
+        provider.defaultSecretRef ?? "",
+        provider.credentialStatus,
+      ]
+        .join(" ")
+        .toLowerCase();
+      return matchesStatus && searchable.includes(normalizedQuery);
+    });
+  }, [providers.items, query, statusFilter]);
+
   return (
     <section className="overflow-hidden rounded-lg border border-[color:var(--color-border-subtle)] bg-surface">
-      <div className="border-b border-[color:var(--color-border-subtle)] px-4 py-3">
-        <h2 className="text-sm font-semibold text-text-primary">Provider health</h2>
-        <p className="mt-1 text-xs text-text-secondary">
-          Credentials stay backend-owned; this screen shows readiness only.
-        </p>
+      <div className="flex flex-col gap-3 border-b border-[color:var(--color-border-subtle)] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h2 className="text-sm font-semibold text-text-primary">Provider operations</h2>
+          <p className="mt-1 text-xs text-text-secondary">
+            Configure backend secret references, verify credentials, and discover free models.
+          </p>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-[minmax(0,240px)_150px]">
+          <input
+            className="ui-input h-9 px-3 text-sm"
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search providers"
+            value={query}
+          />
+          <select
+            className="ui-input h-9 px-3 text-sm"
+            onChange={(event) =>
+              setStatusFilter(event.target.value as "" | AdminProviderItem["status"])
+            }
+            value={statusFilter}
+          >
+            <option value="">All statuses</option>
+            <option value="active">Active</option>
+            <option value="disabled">Disabled</option>
+            <option value="deprecated">Deprecated</option>
+          </select>
+        </div>
       </div>
+      {providers.items.length === 0 ? (
+        <div className="p-5">
+          <EmptyState
+            title="No providers configured"
+            description="Seed or create providers in the backend before running model discovery."
+          />
+        </div>
+      ) : null}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[640px] text-left text-xs">
+        <table className="w-full min-w-[1100px] text-left text-xs">
           <thead className="border-b border-[color:var(--color-border-subtle)] bg-[color:var(--color-surface-panel-muted)]/60 text-[10px] uppercase tracking-[0.14em] text-text-muted">
             <tr>
               <th className="px-4 py-3 font-semibold">Provider</th>
-              <th className="px-4 py-3 font-semibold">Models</th>
+              <th className="px-4 py-3 font-semibold">Secret Reference</th>
               <th className="px-4 py-3 font-semibold">Credential</th>
+              <th className="px-4 py-3 font-semibold">Discovery</th>
+              <th className="px-4 py-3 font-semibold">Models</th>
               <th className="px-4 py-3 font-semibold">Status</th>
+              <th className="px-4 py-3 text-right font-semibold">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[color:var(--color-border-subtle)]">
-            {entries.map((provider) => (
+            {filteredProviders.map((provider) => {
+              const publicProvider = publicProviderById.get(provider.id);
+              const providerSync = syncByProviderId.get(provider.id);
+              const secretRef = secretRefs[provider.id] ?? provider.defaultSecretRef ?? "";
+              const secretChanged = secretRef.trim() !== (provider.defaultSecretRef ?? "");
+              const isChecking = pendingAction === `provider:check:${provider.id}`;
+              const isDiscovering = pendingAction === `provider:discover:${provider.id}`;
+              const isUpdating = pendingAction === `provider:update:${provider.id}`;
+
+              return (
               <tr className="hover:bg-bg-hover" key={provider.id}>
-                <td className="px-4 py-3 text-sm font-medium text-text-primary">
-                  {provider.name}
+                <td className="max-w-[220px] px-4 py-3">
+                  <p className="truncate text-sm font-medium text-text-primary">
+                    {provider.name}
+                  </p>
+                  <p className="mt-0.5 truncate font-mono text-[10px] text-text-muted">
+                    {provider.driverKey}
+                  </p>
                 </td>
-                <td className="px-4 py-3 text-text-secondary">{provider.models.length}</td>
                 <td className="px-4 py-3">
-                  <StatusPill tone={provider.keyConfigured ? "success" : "error"}>
-                    {provider.keyConfigured ? "Configured" : "Missing"}
+                  <div className="flex items-center gap-2">
+                    <input
+                      className="ui-input h-9 w-[220px] px-3 font-mono text-xs"
+                      onChange={(event) =>
+                        setSecretRefs((current) => ({
+                          ...current,
+                          [provider.id]: event.target.value.toUpperCase(),
+                        }))
+                      }
+                      placeholder="OPENROUTER_API_KEY"
+                      value={secretRef}
+                    />
+                    <Button
+                      disabled={!secretChanged || !secretRef.trim() || isUpdating}
+                      onClick={() =>
+                        onUpdateProvider(provider.id, {
+                          defaultSecretRef: secretRef.trim(),
+                        })
+                      }
+                      size="sm"
+                      type="button"
+                      variant="secondary"
+                    >
+                      {isUpdating ? "Saving..." : "Save"}
+                    </Button>
+                  </div>
+                </td>
+                <td className="px-4 py-3">
+                  <StatusPill tone={credentialTone(provider.credentialStatus)}>
+                    {provider.credentialStatus}
                   </StatusPill>
+                  {provider.defaultSecretRef ? (
+                    <p className="mt-1 font-mono text-[10px] text-text-muted">
+                      {provider.defaultSecretRef}
+                    </p>
+                  ) : null}
                 </td>
                 <td className="px-4 py-3">
-                  <StatusPill tone={provider.keyConfigured ? "success" : "error"}>
+                  <StatusPill tone={syncTone(providerSync?.status ?? "never_synced")}>
+                    {providerSync?.status ?? "never_synced"}
+                  </StatusPill>
+                  <p className="mt-1 text-[10px] text-text-muted">
+                    {providerSync?.lastSuccessAt
+                      ? `Last success ${formatDateTime(providerSync.lastSuccessAt)}`
+                      : "No successful sync yet"}
+                  </p>
+                </td>
+                <td className="px-4 py-3 text-text-secondary">
+                  {publicProvider?.models.length ?? 0}
+                </td>
+                <td className="px-4 py-3">
+                  <StatusPill tone={provider.status === "active" ? "success" : "neutral"}>
                     {provider.status}
                   </StatusPill>
                 </td>
+                <td className="px-4 py-3">
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      disabled={!provider.defaultSecretRef || isChecking}
+                      onClick={() => onCheckCredential(provider.id)}
+                      size="sm"
+                      type="button"
+                      variant="secondary"
+                    >
+                      {isChecking ? "Checking..." : "Check key"}
+                    </Button>
+                    <Button
+                      disabled={
+                        provider.status !== "active" ||
+                        provider.credentialStatus !== "configured" ||
+                        isDiscovering
+                      }
+                      onClick={() => onRunDiscovery(provider.id)}
+                      size="sm"
+                      type="button"
+                      variant="primary"
+                    >
+                      {isDiscovering ? "Running..." : "Run discovery"}
+                    </Button>
+                    <Button
+                      disabled={isUpdating}
+                      onClick={() =>
+                        onUpdateProvider(provider.id, {
+                          status: provider.status === "active" ? "disabled" : "active",
+                        })
+                      }
+                      size="sm"
+                      type="button"
+                      variant="ghost"
+                    >
+                      {provider.status === "active" ? "Disable" : "Enable"}
+                    </Button>
+                  </div>
+                </td>
               </tr>
-            ))}
+            );
+            })}
           </tbody>
         </table>
       </div>
+      {filteredProviders.length === 0 ? (
+        <div className="border-t border-[color:var(--color-border-subtle)] p-5">
+          <EmptyState
+            title="No matching providers"
+            description="Clear search or filters to return to all providers."
+          />
+        </div>
+      ) : null}
     </section>
   );
 }
 
 function AdminUsage({
-  analytics,
-  models,
+  counters,
+  providers,
+  registry,
+  summary,
 }: {
-  analytics: ModelAnalyticsResponse;
-  models: ModelRegistryItem[];
+  counters: AdminModelUsageCounterListResponse;
+  providers: AdminProviderListResponse;
+  registry: AdminModelRegistryListResponse;
+  summary: AdminModelUsageSummaryResponse;
 }) {
-  const modelNames = new Map(models.map((model) => [model.id, model.displayName]));
+  const registryById = new Map(registry.items.map((model) => [model.id, model]));
+  const providerNames = new Map(providers.items.map((provider) => [provider.id, provider.name]));
+  const successRate =
+    summary.requestCount > 0
+      ? `${Math.round((summary.successCount / summary.requestCount) * 100)}%`
+      : "0%";
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard label="Requests" value={formatNumber(summary.requestCount)} />
+        <MetricCard label="Success rate" value={successRate} />
+        <MetricCard label="Fallbacks" value={formatNumber(summary.fallbackCount)} />
+        <MetricCard label="Tokens" value={formatNumber(summary.totalTokens)} />
+      </div>
+      <section className="overflow-hidden rounded-lg border border-[color:var(--color-border-subtle)] bg-surface">
+        <div className="border-b border-[color:var(--color-border-subtle)] px-4 py-3">
+          <h2 className="text-sm font-semibold text-text-primary">Usage counters</h2>
+          <p className="mt-1 text-xs text-text-secondary">
+            Daily backend-owned counters for approved registry models.
+          </p>
+        </div>
+        {counters.items.length === 0 ? (
+          <div className="p-5">
+            <EmptyState
+              title="No usage yet"
+              description="Usage appears here after chat requests are routed through approved models."
+            />
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[860px] text-left text-xs">
+              <thead className="border-b border-[color:var(--color-border-subtle)] bg-[color:var(--color-surface-panel-muted)]/60 text-[10px] uppercase tracking-[0.14em] text-text-muted">
+                <tr>
+                  <th className="px-4 py-3 font-semibold">Model</th>
+                  <th className="px-4 py-3 font-semibold">Provider</th>
+                  <th className="px-4 py-3 font-semibold">Window</th>
+                  <th className="px-4 py-3 font-semibold">Requests</th>
+                  <th className="px-4 py-3 font-semibold">Failures</th>
+                  <th className="px-4 py-3 font-semibold">Fallbacks</th>
+                  <th className="px-4 py-3 font-semibold">Latency</th>
+                  <th className="px-4 py-3 font-semibold">Tokens</th>
+                  <th className="px-4 py-3 font-semibold">Cost</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[color:var(--color-border-subtle)]">
+                {counters.items.map((item) => {
+                  const registryModel = registryById.get(item.registryModelId);
+                  return (
+                    <tr className="hover:bg-bg-hover" key={item.id}>
+                      <td className="max-w-[240px] px-4 py-3">
+                        <p className="truncate text-sm font-medium text-text-primary">
+                          {registryModel?.catalog.displayName ?? item.registryModelId}
+                        </p>
+                        <p className="mt-0.5 truncate font-mono text-[10px] text-text-muted">
+                          {item.registryModelId}
+                        </p>
+                      </td>
+                      <td className="px-4 py-3 text-text-secondary">
+                        {providerNames.get(item.providerId) ?? item.providerId}
+                      </td>
+                      <td className="px-4 py-3 text-text-secondary">
+                        {formatDateTime(item.bucketStart)}
+                      </td>
+                      <td className="px-4 py-3 text-text-secondary">
+                        {formatNumber(item.requestCount)}
+                      </td>
+                      <td className="px-4 py-3 text-text-secondary">
+                        {formatNumber(item.failureCount)}
+                      </td>
+                      <td className="px-4 py-3 text-text-secondary">
+                        {formatNumber(item.fallbackCount)}
+                      </td>
+                      <td className="px-4 py-3 text-text-secondary">
+                        {item.averageLatencyMs == null ? "No samples" : `${Math.round(item.averageLatencyMs)}ms`}
+                      </td>
+                      <td className="px-4 py-3 text-text-secondary">
+                        {formatNumber(item.totalTokens)}
+                      </td>
+                      <td className="px-4 py-3 text-text-secondary">
+                        {formatUsdMicros(item.costUsdMicros)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function AdminFailover({
+  modelRuntimeHealth,
+  onResetModelHealth,
+  onResetProviderHealth,
+  pendingAction,
+  providerHealth,
+  providers,
+  registry,
+  routingAttempts,
+  usageSummary,
+}: {
+  modelRuntimeHealth: AdminModelRuntimeHealthListResponse;
+  onResetModelHealth: (registryModelId: string) => void;
+  onResetProviderHealth: (providerId: string) => void;
+  pendingAction: string | null;
+  providerHealth: AdminProviderHealthListResponse;
+  providers: AdminProviderListResponse;
+  registry: AdminModelRegistryListResponse;
+  routingAttempts: AdminRoutingAttemptsResponse;
+  usageSummary: AdminModelUsageSummaryResponse;
+}) {
+  const providerNameById = useMemo(
+    () => new Map(providers.items.map((provider) => [provider.id, provider.name])),
+    [providers.items],
+  );
+  const registryNameById = useMemo(
+    () =>
+      new Map(
+        registry.items.map((entry) => [
+          entry.id,
+          {
+            modelName: entry.catalog.displayName,
+            providerName:
+              providerNameById.get(entry.catalog.providerId) ?? entry.catalog.providerId,
+          },
+        ]),
+      ),
+    [providerNameById, registry.items],
+  );
+  const unhealthyProviders = providerHealth.items.filter(
+    (item) => item.status !== "healthy",
+  );
+  const unhealthyModels = modelRuntimeHealth.items.filter(
+    (item) => item.status !== "healthy",
+  );
+  const selectedAttempts = routingAttempts.items.filter(
+    (item) => item.status === "selected",
+  ).length;
+  const blockedAttempts = routingAttempts.items.length - selectedAttempts;
+
+  return (
+    <div className="space-y-5">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard label="Routing attempts" value={formatNumber(routingAttempts.total)} />
+        <MetricCard label="Selected" value={formatNumber(selectedAttempts)} />
+        <MetricCard label="Blocked" value={formatNumber(blockedAttempts)} />
+        <MetricCard
+          label="Avg latency"
+          value={
+            usageSummary.averageLatencyMs == null
+              ? "n/a"
+              : `${Math.round(usageSummary.averageLatencyMs)}ms`
+          }
+        />
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-2">
+        <HealthPanel
+          emptyDescription="Provider health appears after checks or routing activity."
+          items={providerHealth.items}
+          nameForId={(providerId) => providerNameById.get(providerId) ?? providerId}
+          onReset={onResetProviderHealth}
+          pendingAction={pendingAction}
+          resetPrefix="provider-health:reset"
+          title="Provider health"
+          type="provider"
+        />
+        <HealthPanel
+          emptyDescription="Model runtime health appears after routing or health checks."
+          items={modelRuntimeHealth.items}
+          nameForId={(registryModelId) =>
+            registryNameById.get(registryModelId)?.modelName ?? registryModelId
+          }
+          onReset={onResetModelHealth}
+          pendingAction={pendingAction}
+          resetPrefix="model-health:reset"
+          title="Model runtime health"
+          type="model"
+        />
+      </section>
+
+      <section className="overflow-hidden rounded-lg border border-[color:var(--color-border-subtle)] bg-surface">
+        <div className="border-b border-[color:var(--color-border-subtle)] px-4 py-3">
+          <h2 className="text-sm font-semibold text-text-primary">Recent routing attempts</h2>
+          <p className="mt-1 text-xs text-text-secondary">
+            Showing {routingAttempts.items.length} of {routingAttempts.total} request-time
+            routing decisions.
+          </p>
+        </div>
+        {routingAttempts.items.length === 0 ? (
+          <div className="p-6">
+            <EmptyState
+              title="No routing attempts yet"
+              description="Send a chat message to create eligibility and routing records."
+            />
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[920px] text-left text-xs">
+              <thead className="border-b border-[color:var(--color-border-subtle)] bg-[color:var(--color-surface-panel-muted)]/60 text-[10px] uppercase tracking-[0.14em] text-text-muted">
+                <tr>
+                  <th className="px-4 py-3 font-semibold">Time</th>
+                  <th className="px-4 py-3 font-semibold">Decision</th>
+                  <th className="px-4 py-3 font-semibold">Model</th>
+                  <th className="px-4 py-3 font-semibold">Eligible</th>
+                  <th className="px-4 py-3 font-semibold">Reason</th>
+                  <th className="px-4 py-3 font-semibold">Request</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[color:var(--color-border-subtle)]">
+                {routingAttempts.items.map((attempt) => {
+                  const registryModel = attempt.registryModelId
+                    ? registryNameById.get(attempt.registryModelId)
+                    : null;
+                  return (
+                    <tr className="hover:bg-bg-hover" key={attempt.id}>
+                      <td className="px-4 py-3 font-mono text-[10px] text-text-secondary">
+                        {formatDateTime(attempt.createdAt)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <StatusPill tone={attempt.status === "selected" ? "success" : "error"}>
+                          {attempt.status.replace(/_/g, " ")}
+                        </StatusPill>
+                      </td>
+                      <td className="max-w-[220px] px-4 py-3">
+                        <p className="truncate text-sm font-medium text-text-primary">
+                          {registryModel?.modelName ?? "No model selected"}
+                        </p>
+                        <p className="mt-0.5 truncate text-[10px] text-text-muted">
+                          {registryModel?.providerName ?? attempt.mode}
+                        </p>
+                      </td>
+                      <td className="px-4 py-3 font-mono text-[10px] text-text-secondary">
+                        {attempt.eligibleCount} yes / {attempt.ineligibleCount} no
+                      </td>
+                      <td className="max-w-[220px] px-4 py-3 text-text-secondary">
+                        <span className="block truncate">
+                          {attempt.reasonMessage ?? attempt.reasonCode ?? "Selected"}
+                        </span>
+                      </td>
+                      <td className="max-w-[180px] px-4 py-3">
+                        <code className="block truncate rounded border border-[color:var(--color-border-subtle)] bg-bg-hover px-2 py-1 font-mono text-[10px] text-text-muted">
+                          {attempt.requestId}
+                        </code>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {(unhealthyProviders.length > 0 || unhealthyModels.length > 0) ? (
+        <p className="text-xs text-text-muted">
+          Attention: {unhealthyProviders.length} provider health record(s) and{" "}
+          {unhealthyModels.length} model health record(s) are not healthy.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function HealthPanel({
+  emptyDescription,
+  items,
+  nameForId,
+  onReset,
+  pendingAction,
+  resetPrefix,
+  title,
+  type,
+}: {
+  emptyDescription: string;
+  items: Array<AdminProviderHealthItem | AdminModelRuntimeHealthItem>;
+  nameForId: (id: string) => string;
+  onReset: (id: string) => void;
+  pendingAction: string | null;
+  resetPrefix: string;
+  title: string;
+  type: "provider" | "model";
+}) {
   return (
     <section className="overflow-hidden rounded-lg border border-[color:var(--color-border-subtle)] bg-surface">
       <div className="border-b border-[color:var(--color-border-subtle)] px-4 py-3">
-        <h2 className="text-sm font-semibold text-text-primary">Usage by model</h2>
-        <p className="mt-1 text-xs text-text-secondary">Current analytics window from the backend.</p>
+        <h2 className="text-sm font-semibold text-text-primary">{title}</h2>
+        <p className="mt-1 text-xs text-text-secondary">
+          Reset stale cooldowns only after the underlying issue has been resolved.
+        </p>
       </div>
-      {analytics.summary.length === 0 ? (
+      {items.length === 0 ? (
         <div className="p-5">
-        <EmptyState title="No usage yet" description="Model usage appears after chat requests." />
+          <EmptyState title="No health records" description={emptyDescription} />
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[680px] text-left text-xs">
-            <thead className="border-b border-[color:var(--color-border-subtle)] bg-[color:var(--color-surface-panel-muted)]/60 text-[10px] uppercase tracking-[0.14em] text-text-muted">
-              <tr>
-                <th className="px-4 py-3 font-semibold">Model</th>
-                <th className="px-4 py-3 font-semibold">Requests</th>
-                <th className="px-4 py-3 font-semibold">Errors</th>
-                <th className="px-4 py-3 font-semibold">Tokens</th>
-                <th className="px-4 py-3 font-semibold">Cost</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[color:var(--color-border-subtle)]">
-              {analytics.summary.map((item) => (
-                <tr className="hover:bg-bg-hover" key={item.modelId}>
-                  <td className="max-w-[280px] px-4 py-3">
-                    <p className="truncate text-sm font-medium text-text-primary">
-                      {modelNames.get(item.modelId) ?? item.modelId}
-                    </p>
-                    <p className="mt-0.5 truncate font-mono text-[10px] text-text-muted">
-                      {item.modelId}
-                    </p>
-                  </td>
-                  <td className="px-4 py-3 text-text-secondary">{formatNumber(item.requestCount)}</td>
-                  <td className="px-4 py-3 text-text-secondary">{formatNumber(item.errorCount)}</td>
-                  <td className="px-4 py-3 text-text-secondary">{formatNumber(item.totalTokens)}</td>
-                  <td className="px-4 py-3 text-text-secondary">{formatUsdMicros(item.costUsdMicros)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="divide-y divide-[color:var(--color-border-subtle)]">
+          {items.slice(0, 8).map((item) => {
+            const id = type === "provider"
+              ? (item as AdminProviderHealthItem).providerId
+              : (item as AdminModelRuntimeHealthItem).registryModelId;
+            const isResetting = pendingAction === `${resetPrefix}:${id}`;
+            return (
+              <div className="flex items-center justify-between gap-3 px-4 py-3" key={item.id}>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-text-primary">
+                    {nameForId(id)}
+                  </p>
+                  <p className="mt-0.5 truncate text-[10px] text-text-muted">
+                    {item.reason ?? item.lastFailureCode ?? "No failure reason recorded"}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <StatusPill tone={healthTone(item.status)}>
+                    {item.status.replace(/_/g, " ")}
+                  </StatusPill>
+                  <Button
+                    disabled={item.status === "healthy" || isResetting}
+                    onClick={() => onReset(id)}
+                    size="sm"
+                    type="button"
+                    variant="secondary"
+                  >
+                    {isResetting ? "Resetting..." : "Reset"}
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </section>
   );
 }
 
-function AdminFailover({
-  attempts,
-  filters,
-  isLoading,
-  models,
-  onChangeFilters,
-}: {
-  attempts: ModelFailoverAttemptsResponse;
-  filters: FailoverFilters;
-  isLoading: boolean;
-  models: ModelRegistryItem[];
-  onChangeFilters: (filters: FailoverFilters) => void;
-}) {
-  const pageStart = attempts.total === 0 ? 0 : (attempts.page - 1) * attempts.pageSize + 1;
-  const pageEnd = Math.min(attempts.total, attempts.page * attempts.pageSize);
-
-  function updateFilters(patch: Partial<FailoverFilters>) {
-    onChangeFilters({
-      ...filters,
-      ...patch,
-    });
-  }
-
-  const inputClassName =
-    "ui-input h-9 w-full px-3 text-sm placeholder:text-text-muted disabled:cursor-not-allowed disabled:bg-bg-hover disabled:text-text-muted";
-  const labelClassName =
-    "mb-1 block text-[10px] font-semibold uppercase tracking-wider text-text-muted";
-  const paginationButtonClassName =
-    "inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-[color:var(--color-border-subtle)] bg-surface px-3 text-xs font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-surface disabled:hover:text-text-secondary";
-
-  return (
-    <section className="overflow-hidden rounded-lg border border-[color:var(--color-border-subtle)] bg-surface">
-      <div className="border-b border-[color:var(--color-border-subtle)] px-4 py-3">
-        <div>
-          <h2 className="text-sm font-semibold text-text-primary">
-            Provider attempts
-          </h2>
-          <p className="mt-1 text-xs text-text-secondary">
-            Showing {pageStart}-{pageEnd} of {attempts.total} attempts.
-          </p>
-        </div>
-        <div className="mt-4 grid grid-cols-1 items-end gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)_minmax(0,0.85fr)_minmax(0,0.85fr)_minmax(0,0.8fr)_auto]">
-          <label>
-            <span className={labelClassName}>Model</span>
-            <select
-              className={inputClassName}
-              disabled={isLoading}
-              onChange={(event) => updateFilters({ modelId: event.target.value, page: 1 })}
-              value={filters.modelId}
-            >
-              <option value="">All models</option>
-              {models.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.displayName}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span className={labelClassName}>Status</span>
-            <select
-              className={inputClassName}
-              disabled={isLoading}
-              onChange={(event) =>
-                updateFilters({
-                  status: event.target.value as FailoverFilters["status"],
-                  page: 1,
-                })
-              }
-              value={filters.status}
-            >
-              <option value="">All statuses</option>
-              <option value="success">Success</option>
-              <option value="failed">Failed</option>
-              <option value="skipped_cooldown">Skipped cooldown</option>
-              <option value="blocked_quota">Blocked quota</option>
-            </select>
-          </label>
-          <label>
-            <span className={labelClassName}>From</span>
-            <input
-              className={inputClassName}
-              disabled={isLoading}
-              onChange={(event) => updateFilters({ from: event.target.value, page: 1 })}
-              type="date"
-              value={filters.from}
-            />
-          </label>
-          <label>
-            <span className={labelClassName}>To</span>
-            <input
-              className={inputClassName}
-              disabled={isLoading}
-              onChange={(event) => updateFilters({ to: event.target.value, page: 1 })}
-              type="date"
-              value={filters.to}
-            />
-          </label>
-          <label>
-            <span className={labelClassName}>Page Size</span>
-            <select
-              className={inputClassName}
-              disabled={isLoading}
-              onChange={(event) =>
-                updateFilters({ pageSize: Number(event.target.value), page: 1 })
-              }
-              value={String(filters.pageSize)}
-            >
-              <option value="10">10 rows</option>
-              <option value="25">25 rows</option>
-              <option value="50">50 rows</option>
-              <option value="100">100 rows</option>
-            </select>
-          </label>
-          <button
-            className="flex h-9 items-center justify-center rounded-md px-3 text-xs font-medium text-text-secondary transition-colors hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={isLoading}
-            onClick={() =>
-              onChangeFilters({
-                page: 1,
-                pageSize: 25,
-                modelId: "",
-                status: "",
-                from: "",
-                to: "",
-              })
-            }
-            type="button"
-          >
-            Clear filters
-          </button>
-        </div>
-      </div>
-      {attempts.items.length === 0 ? (
-        <div className="p-6">
-          <EmptyState
-            title="No matching provider attempts"
-            description="Try widening the filters or send a chat message to create new routing attempts."
-          />
-        </div>
-      ) : null}
-      <div className="overflow-x-auto">
-        <table className="min-w-[980px] w-full text-left text-xs">
-          <thead className="border-b border-[color:var(--color-border-subtle)] bg-[color:var(--color-surface-panel-muted)]/60 text-[10px] uppercase tracking-[0.16em] text-text-muted">
-            <tr>
-              <th className="px-4 py-3 font-semibold">Time</th>
-              <th className="px-4 py-3 font-semibold">Model</th>
-              <th className="px-4 py-3 font-semibold">Status</th>
-              <th className="px-4 py-3 font-semibold">Attempt</th>
-              <th className="px-4 py-3 font-semibold">Failure</th>
-              <th className="px-4 py-3 font-semibold">Latency</th>
-              <th className="px-4 py-3 font-semibold">Tokens</th>
-              <th className="px-4 py-3 font-semibold">Trace</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[color:var(--color-border-subtle)] bg-surface">
-            {attempts.items.map((attempt) => (
-              <tr key={attempt.id} className="hover:bg-bg-hover">
-                <td className="px-4 py-3 text-text-secondary font-mono text-[10px] tracking-wide">
-                  {formatDateTime(attempt.createdAt)}
-                </td>
-                <td className="max-w-[220px] px-4 py-3">
-                  <p className="truncate font-medium text-text-primary">
-                    {attempt.modelName}
-                  </p>
-                  <p className="truncate text-[9px] text-text-muted font-mono uppercase tracking-wider mt-0.5">
-                    {attempt.providerName} {"//"} {attempt.providerModelId}
-                  </p>
-                </td>
-                <td className="px-4 py-3">
-                  <StatusPill tone={statusTone(attempt.status)}>
-                    {attempt.status.replace(/_/g, " ")}
-                  </StatusPill>
-                </td>
-                <td className="px-4 py-3 text-text-secondary">
-                  <div className="flex flex-wrap gap-1.5">
-                    <StatusPill tone={attempt.wasFailover ? "warning" : "neutral"}>
-                      #{attempt.attemptNo}
-                    </StatusPill>
-                    {attempt.wasManualSelection ? (
-                      <StatusPill tone="info">Manual</StatusPill>
-                    ) : null}
-                    {attempt.wasFailover ? (
-                      <StatusPill tone="warning">Failover</StatusPill>
-                    ) : null}
-                  </div>
-                </td>
-                <td className="max-w-[160px] px-4 py-3 text-text-secondary font-mono text-[10px] uppercase">
-                  <span className="block truncate">
-                    {attempt.failureCode ?? "None"}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-text-secondary font-mono text-[10px]">
-                  {attempt.latencyMs == null ? "n/a" : `${attempt.latencyMs}ms`}
-                </td>
-                <td className="px-4 py-3 text-text-secondary font-mono text-[10px]">
-                  <div>{formatNumber(attempt.totalTokens)}</div>
-                  <div className="text-[9px] text-text-muted tracking-wide mt-0.5">
-                    {formatUsdMicros(attempt.costUsdMicros)}
-                  </div>
-                </td>
-                <td className="max-w-[180px] px-4 py-3">
-                  <code className="block truncate rounded bg-[color:var(--color-bg-hover)] px-2 py-1 text-[10px] text-text-muted border border-[color:var(--color-border-subtle)] font-mono">
-                    {attempt.idempotencyKey}
-                  </code>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="flex flex-col gap-3 border-t border-[color:var(--color-border-subtle)] bg-[color:var(--color-surface-panel-muted)]/40 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs text-text-muted">
-          {attempts.hasNextPage
-            ? "More attempts are available on the next page."
-            : "End of results for the current filters."}
-        </p>
-        <div className="flex items-center gap-2">
-          <button
-            className={paginationButtonClassName}
-            disabled={attempts.page <= 1 || isLoading}
-            onClick={() => updateFilters({ page: Math.max(1, filters.page - 1) })}
-            type="button"
-          >
-            <ChevronLeft aria-hidden="true" size={14} strokeWidth={1.5} />
-            Previous
-          </button>
-          <span className="inline-flex h-8 items-center justify-center rounded-md border border-[color:var(--color-border-subtle)] bg-[color:var(--color-surface-panel-muted)] px-3 text-xs font-medium text-text-primary">
-            Page {attempts.page}
-          </span>
-          <button
-            className={paginationButtonClassName}
-            disabled={!attempts.hasNextPage || isLoading}
-            onClick={() => updateFilters({ page: filters.page + 1 })}
-            type="button"
-          >
-            Next
-            <ChevronRight aria-hidden="true" size={14} strokeWidth={1.5} />
-          </button>
-        </div>
-      </div>
-    </section>
-  );
+function credentialTone(status: AdminProviderItem["credentialStatus"]) {
+  if (status === "configured") return "success";
+  if (status === "missing" || status === "invalid") return "error";
+  return "neutral";
 }
 
-function statusTone(status: ModelFailoverAttemptsResponse["items"][number]["status"]) {
-  if (status === "success") return "success";
+function healthTone(
+  status: AdminProviderHealthItem["status"] | AdminModelRuntimeHealthItem["status"],
+) {
+  if (status === "healthy") return "success";
+  if (status === "degraded" || status === "rate_limited" || status === "open_circuit") {
+    return "warning";
+  }
+  if (status === "unknown") return "neutral";
+  return "error";
+}
+
+function syncTone(status: AdminProviderSyncStatusItem["status"]) {
+  if (status === "succeeded") return "success";
   if (status === "failed") return "error";
-  if (status === "blocked_quota") return "warning";
+  if (status === "syncing") return "info";
   return "neutral";
+}
+
+function latestSyncSuccess(items: AdminProviderSyncStatusItem[]) {
+  return items.reduce<string | null>((latest, item) => {
+    if (!item.lastSuccessAt) return latest;
+    if (!latest) return item.lastSuccessAt;
+    return new Date(item.lastSuccessAt).getTime() > new Date(latest).getTime()
+      ? item.lastSuccessAt
+      : latest;
+  }, null);
+}
+
+function formatCapabilities(capabilities: {
+  chat: boolean;
+  agent: boolean;
+  vision: boolean;
+  toolUse: boolean;
+  jsonMode: boolean;
+}) {
+  return [
+    capabilities.chat ? "chat" : null,
+    capabilities.agent ? "agent" : null,
+    capabilities.vision ? "vision" : null,
+    capabilities.toolUse ? "tools" : null,
+    capabilities.jsonMode ? "json" : null,
+  ].filter((item): item is string => Boolean(item));
 }
 
 function AdminSettings() {
@@ -1529,12 +2051,12 @@ function AdminSettings() {
         {
           label: "Before tester handoff",
           value: "Verify at least one eligible model",
-          detail: "Open Overview and Failover Logs after a test chat to confirm routing attempts are recorded.",
+          detail: "Open Overview and Routing after a test chat to confirm attempts and health signals are recorded.",
         },
         {
           label: "When provider errors rise",
           value: "Review model priority and cooldowns",
-          detail: "Disable failing models or adjust provider credentials before customers hit a full outage.",
+          detail: "Use Models, Providers, and Routing to disable failing paths or fix credentials before customers hit a full outage.",
         },
       ],
     },

@@ -13,6 +13,7 @@ import type {
 } from "./domain.js";
 import type {
   ModelRoutingLogger,
+  ModelRoutingMetrics,
   ModelRoutingService,
   RoutingAttemptRepository,
 } from "./interfaces.js";
@@ -21,6 +22,7 @@ interface CreateModelRoutingServiceOptions {
   eligibilityService: ModelEligibilityService;
   attemptRepository: RoutingAttemptRepository;
   logger?: ModelRoutingLogger;
+  metrics?: ModelRoutingMetrics;
 }
 
 const noopLogger: ModelRoutingLogger = {
@@ -50,10 +52,18 @@ export function createModelRoutingService(
         requestedOutputTokens: input.requestedOutputTokens,
         includeIneligible: true,
       });
-      const selected = eligibility.eligible[0] ?? null;
+      const selected = input.preferredRegistryModelId
+        ? eligibility.eligible.find(
+            (model) => model.registryModelId === input.preferredRegistryModelId,
+          ) ?? null
+        : eligibility.eligible[0] ?? null;
       const noEligibleReason = selected
         ? null
-        : getNoEligibleReason(eligibility.ineligible.flatMap((model) => model.reasons));
+        : getNoEligibleReason({
+            preferredRegistryModelId: input.preferredRegistryModelId ?? null,
+            eligibleCount: eligibility.eligible.length,
+            ineligibleReasons: eligibility.ineligible.flatMap((model) => model.reasons),
+          });
 
       const attempt = await createAttemptOrThrowConflict(() =>
         options.attemptRepository.create({
@@ -72,6 +82,7 @@ export function createModelRoutingService(
             estimatedInputTokens: input.estimatedInputTokens ?? null,
             requestedOutputTokens: input.requestedOutputTokens ?? null,
             companionAvailable: input.companionAvailable,
+            preferredRegistryModelId: input.preferredRegistryModelId ?? null,
           },
         }),
       );
@@ -83,11 +94,17 @@ export function createModelRoutingService(
           mode: input.mode,
           status: attempt.status,
           registryModelId: attempt.registryModelId,
+          preferredRegistryModelId: input.preferredRegistryModelId ?? null,
           eligibleCount: attempt.eligibleCount,
           ineligibleCount: attempt.ineligibleCount,
         },
         "Model route selection recorded",
       );
+      options.metrics?.observeRoutingAttempt({
+        mode: input.mode,
+        status: attempt.status,
+        reasonCode: attempt.reasonCode,
+      });
 
       return toRouteSelection(attempt, selected);
     },
@@ -138,9 +155,20 @@ function toRouteSelection(
   };
 }
 
-function getNoEligibleReason(reasons: EligibilityReason[]) {
+function getNoEligibleReason(input: {
+  preferredRegistryModelId: string | null;
+  eligibleCount: number;
+  ineligibleReasons: EligibilityReason[];
+}) {
+  if (input.preferredRegistryModelId && input.eligibleCount > 0) {
+    return {
+      code: "selected_model_ineligible",
+      message: "Selected model is not eligible for this request.",
+    };
+  }
+
   return (
-    reasons.find((reason) => reason.code !== "eligible") ?? {
+    input.ineligibleReasons.find((reason) => reason.code !== "eligible") ?? {
       code: "no_eligible_models",
       message: "No eligible models are available for this request.",
     }

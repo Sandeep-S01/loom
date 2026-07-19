@@ -662,14 +662,14 @@ export function WorkspaceAppShell({
                 aria-label="Open navigation"
                 aria-controls={contextPanelId}
                 aria-expanded={showMobilePanel}
-                className="rounded-lg border border-[color:var(--color-border-subtle)] bg-[color:var(--color-surface-panel)] p-1.5 text-text-secondary transition hover:border-[color:var(--color-border-strong)] hover:text-text-primary lg:hidden"
+                className="flex h-10 w-10 items-center justify-center rounded-lg border border-[color:var(--color-border-subtle)] bg-[color:var(--color-surface-panel)] text-text-secondary transition hover:border-[color:var(--color-border-strong)] hover:text-text-primary lg:hidden"
                 onClick={() => {
                   setIsPanelOpen(true);
                   setIsMobilePanelOpen(true);
                 }}
                 type="button"
               >
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
                 </svg>
               </button>

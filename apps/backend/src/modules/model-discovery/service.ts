@@ -100,6 +100,12 @@ export function createModelDiscoveryService(
         },
         "Model discovery job succeeded",
       );
+      options.metrics?.observeDiscoveryJob({
+        providerId: provider.id,
+        status: "succeeded",
+        triggerType: input.triggerType,
+        durationMs: completedAt.getTime() - job.startedAt.getTime(),
+      });
 
       return mapJob(requireUpdatedJob(updatedJob));
     } catch (error) {
@@ -135,6 +141,12 @@ export function createModelDiscoveryService(
         },
         "Model discovery job failed",
       );
+      options.metrics?.observeDiscoveryJob({
+        providerId: provider.id,
+        status: "failed",
+        triggerType: input.triggerType,
+        durationMs: completedAt.getTime() - job.startedAt.getTime(),
+      });
 
       return mapJob(requireUpdatedJob(updatedJob));
     }

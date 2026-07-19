@@ -7,7 +7,7 @@ test("rejects invalid credentials and establishes a secure browser session", asy
   expect(response?.headers()["content-security-policy"]).toContain("frame-ancestors 'none'");
   expect(response?.headers()["x-content-type-options"]).toBe("nosniff");
   await expect(
-    page.getByRole("heading", { name: /Chat with your models, files, and workspaces in one place/i }),
+    page.getByRole("heading", { name: /AI chat with approved models and local workspace context/i }),
   ).toBeVisible();
   await page.getByRole("link", { name: "Sign in" }).first().click();
 
@@ -37,7 +37,7 @@ test("registers a customer and opens the workspace settings page", async ({ page
   await page.getByLabel("Name").fill("Beta Customer");
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill("strongpass");
-  await page.getByRole("button", { name: "Create account" }).click();
+  await page.getByRole("button", { name: "Start testing Loom" }).click();
 
   await expect(page).toHaveURL(/\/dashboard/, { timeout: 45_000 });
   await expect(page.getByRole("heading", { name: /Welcome back, Beta/ })).toBeVisible({

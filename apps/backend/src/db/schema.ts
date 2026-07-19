@@ -432,6 +432,9 @@ export const messages = pgTable(
     contentJson: jsonb("content_json").notNull(),
     providerId: varchar("provider_id", { length: 50 }).references(() => providers.id),
     modelId: varchar("model_id", { length: 50 }).references(() => models.id),
+    registryModelId: varchar("registry_model_id", { length: 50 }).references(
+      () => modelRegistry.id,
+    ),
     tokenEstimateIn: integer("token_estimate_in"),
     tokenEstimateOut: integer("token_estimate_out"),
     sequenceNo: integer("sequence_no").notNull(),
@@ -441,6 +444,10 @@ export const messages = pgTable(
     uniqueIndex("uq_messages_conversation_sequence").on(
       table.conversationId,
       table.sequenceNo,
+    ),
+    index("idx_messages_registry_model_created").on(
+      table.registryModelId,
+      table.createdAt,
     ),
   ],
 );
@@ -618,9 +625,10 @@ export const providerAttempts = pgTable(
     providerId: varchar("provider_id", { length: 50 })
       .notNull()
       .references(() => providers.id),
-    modelId: varchar("model_id", { length: 50 })
-      .notNull()
-      .references(() => models.id),
+    modelId: varchar("model_id", { length: 50 }).references(() => models.id),
+    registryModelId: varchar("registry_model_id", { length: 50 }).references(
+      () => modelRegistry.id,
+    ),
     attemptNo: integer("attempt_no").notNull(),
     status: varchar("status", { length: 20 }).notNull(), // 'success' | 'failed' | 'switched'
     failureCode: varchar("failure_code", { length: 40 }),
@@ -639,6 +647,10 @@ export const providerAttempts = pgTable(
     ),
     index("idx_provider_attempts_conversation_started").on(
       table.conversationId,
+      table.startedAt,
+    ),
+    index("idx_provider_attempts_registry_started").on(
+      table.registryModelId,
       table.startedAt,
     ),
   ],

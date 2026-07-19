@@ -175,6 +175,32 @@
     padding-right: var(--space-4);
   }
 
+  .public-focus:focus-visible {
+    outline: 2px solid var(--color-accent-hover);
+    outline-offset: 3px;
+    border-radius: var(--radius-md);
+  }
+
+  .landing-header-link {
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .landing-primary-cta {
+    min-height: 44px;
+    background: var(--color-accent-hover);
+    color: var(--color-accent-text);
+  }
+
+  .landing-primary-cta:hover {
+    background: #b93600;
+  }
+
+  .landing-secondary-cta {
+    min-height: 44px;
+  }
+
   .workspace-page {
     width: 100%;
     max-width: var(--workspace-container-width);
@@ -1601,23 +1627,19 @@
 .animate-trace-arrow-1 {
   animation: fade-in-line 0.2s ease-out forwards;
   animation-delay: 0.5s;
-  opacity: 0;
 }
 
 .animate-trace-2 {
   animation: fade-in-line 0.4s ease-out forwards;
   animation-delay: 0.8s;
-  opacity: 0;
 }
 
 .animate-trace-arrow-2 {
   animation: fade-in-line 0.2s ease-out forwards;
   animation-delay: 1.3s;
-  opacity: 0;
 }
 
 .animate-trace-3 {
   animation: fade-in-line 0.4s ease-out forwards;
   animation-delay: 1.6s;
-  opacity: 0;
 }

@@ -2,10 +2,12 @@ import type { FastifyInstance } from "fastify";
 import type { CreateModelRequest, UpdateModelRequest } from "@clm/shared-types";
 import { badRequest } from "../../lib/http-errors.js";
 import { requireAdmin } from "../../plugins/admin-guard.js";
+import type { ModelEligibilityService } from "../model-eligibility/interfaces.js";
 import type { ModelRegistryService } from "./service.js";
 
 interface RegisterModelRoutesOptions {
   modelRegistryService: ModelRegistryService;
+  modelEligibilityService?: ModelEligibilityService;
 }
 
 export async function registerModelRoutes(
@@ -36,6 +38,29 @@ export async function registerModelRoutes(
   app.get("/selector", async (request) => {
     const query = request.query as { mode?: string };
     const mode = query.mode === "agent" ? "agent" : "chat";
+    if (options.modelEligibilityService) {
+      const result = await options.modelEligibilityService.evaluate({
+        mode,
+        purpose: "selector",
+        companionAvailable: mode === "chat",
+        includeIneligible: false,
+      });
+      return {
+        models: result.eligible.map((model) => ({
+          id: model.registryModelId,
+          name: model.displayName,
+          displayName: model.displayName,
+          providerId: model.providerId,
+          providerName: model.providerName,
+          supportsChat: model.capabilities.chat,
+          supportsAgent: model.capabilities.agent,
+          supportsVision: model.capabilities.vision,
+          contextWindow: model.contextWindow,
+          effectiveStatus: "active" as const,
+        })),
+      };
+    }
+
     const models = await options.modelRegistryService.listSelectorModels(mode);
     return { models };
   });

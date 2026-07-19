@@ -54,6 +54,15 @@ export interface ModelDiscoveryLogger {
   error(payload: Record<string, unknown>, message: string): void;
 }
 
+export interface ModelDiscoveryMetrics {
+  observeDiscoveryJob(input: {
+    providerId: string;
+    status: string;
+    triggerType: string;
+    durationMs: number;
+  }): void;
+}
+
 export interface ModelDiscoveryService {
   listJobs(filters: DiscoveryJobListFilters): Promise<DiscoveryJobListResponse>;
   getJob(jobId: string): Promise<DiscoveryJobDTO>;
@@ -74,4 +83,5 @@ export interface CreateModelDiscoveryServiceOptions {
   adapterRegistry: DiscoveryAdapterRegistry;
   catalogService: ModelCatalogService;
   logger?: ModelDiscoveryLogger;
+  metrics?: ModelDiscoveryMetrics;
 }

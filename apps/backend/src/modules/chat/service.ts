@@ -52,6 +52,7 @@ export interface ProviderCandidate {
   providerId: string;
   providerName?: string;
   modelId: string;
+  legacyModelId?: string | null;
   registryModelId?: string;
   catalogModelId?: string;
   modelName: string;
@@ -101,7 +102,8 @@ interface CreateChatServiceOptions {
     conversationId: string;
     routingTraceId: string;
     providerId: string;
-    modelId: string;
+    modelId?: string | null;
+    registryModelId?: string | null;
     attemptNo: number;
     status: "success" | "failed";
     failureCode?: ProviderFailureCode;
@@ -450,11 +452,13 @@ export function createChatService(
           if (!modelRateResult.allowed) {
             const now = new Date();
             attemptNo += 1;
+            const legacyModelId = getCandidateLegacyModelId(candidate);
             await options.recordProviderAttempt?.({
               conversationId: input.conversationId,
               routingTraceId,
               providerId: candidate.providerId,
-              modelId: candidate.modelId,
+              modelId: legacyModelId,
+              registryModelId: getCandidateRegistryModelId(candidate),
               attemptNo,
               status: "failed",
               failureCode: "provider_rate_limited",
@@ -528,11 +532,13 @@ export function createChatService(
 
         if (result.ok) {
           const latencyMs = endedAt.getTime() - startedAt.getTime();
+          const legacyModelId = getCandidateLegacyModelId(candidate);
           await options.recordProviderAttempt?.({
             conversationId: input.conversationId,
             routingTraceId,
             providerId: candidate.providerId,
-            modelId: candidate.modelId,
+            modelId: legacyModelId,
+            registryModelId: getCandidateRegistryModelId(candidate),
             attemptNo,
             status: "success",
             usage: result.usage,
@@ -552,10 +558,12 @@ export function createChatService(
             fallbackUsed: attemptNo > 1,
             tokenUsage: result.usage,
           });
-          await options.onProviderSuccess?.({
-            modelId: candidate.modelId,
-            usage: result.usage,
-          });
+          if (legacyModelId) {
+            await options.onProviderSuccess?.({
+              modelId: legacyModelId,
+              usage: result.usage,
+            });
+          }
           await recordUsageForCandidate(options, {
             candidate,
             mode: capability,
@@ -574,7 +582,8 @@ export function createChatService(
             role: "assistant",
             content: [{ type: "text", text: result.text }],
             providerId: candidate.providerId,
-            modelId: candidate.modelId,
+            modelId: legacyModelId,
+            registryModelId: getCandidateRegistryModelId(candidate),
           });
 
           const response: SendMessageResponse = {
@@ -636,11 +645,13 @@ export function createChatService(
         const normalizedFailureCode = normalizedError.code;
         const latencyMs = endedAt.getTime() - startedAt.getTime();
 
+        const legacyModelId = getCandidateLegacyModelId(candidate);
         await options.recordProviderAttempt?.({
           conversationId: input.conversationId,
           routingTraceId,
           providerId: candidate.providerId,
-          modelId: candidate.modelId,
+          modelId: legacyModelId,
+          registryModelId: getCandidateRegistryModelId(candidate),
           attemptNo,
           status: "failed",
           failureCode: normalizedFailureCode,
@@ -660,11 +671,13 @@ export function createChatService(
           fallbackUsed: attemptNo > 1,
           errorCode: normalizedError.code,
         });
-        await options.onProviderFailure?.({
-          modelId: candidate.modelId,
-          failureCode: normalizedFailureCode,
-          retryAfterSeconds: result.retryAfterSeconds,
-        });
+        if (legacyModelId) {
+          await options.onProviderFailure?.({
+            modelId: legacyModelId,
+            failureCode: normalizedFailureCode,
+            retryAfterSeconds: result.retryAfterSeconds,
+          });
+        }
         await recordUsageForCandidate(options, {
           candidate,
           mode: capability,
@@ -793,6 +806,9 @@ async function selectInitialChatRoute(input: {
     conversationId: input.input.conversationId,
     companionAvailable: input.mode === "agent" && Boolean(input.input.workspaceId),
     estimatedInputTokens: input.estimatedInputTokens,
+    preferredRegistryModelId: input.input.selectedModelId?.startsWith("mreg_")
+      ? input.input.selectedModelId
+      : null,
     requestId: input.requestId,
   });
 }
@@ -995,6 +1011,11 @@ function getCandidateRegistryModelId(candidate: ProviderCandidate) {
   return candidate.modelId.startsWith("mreg_") ? candidate.modelId : null;
 }
 
+function getCandidateLegacyModelId(candidate: ProviderCandidate) {
+  if (candidate.legacyModelId !== undefined) return candidate.legacyModelId;
+  return candidate.modelId.startsWith("mreg_") ? null : candidate.modelId;
+}
+
 function estimateMessageTokens(content: MessageContent[]) {
   const textLength = content
     .filter((item) => item.type === "text")
@@ -1153,6 +1174,7 @@ function mapMessageRecord(message: MessageRecord) {
     content: message.content,
     providerId: message.providerId,
     modelId: message.modelId,
+    registryModelId: message.registryModelId,
     createdAt: message.createdAt,
   };
 }

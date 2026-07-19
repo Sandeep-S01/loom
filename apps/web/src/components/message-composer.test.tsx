@@ -25,6 +25,7 @@ describe("MessageComposer", () => {
     expect(markup).toContain('aria-label="Attach files"');
     expect(markup).toContain('aria-label="Composer settings"');
     expect(markup).toContain('aria-label="Choose model"');
+    expect(markup).toContain('aria-label="Send message"');
   });
 
   it("supports upward popover placement for bottom-anchored composer menus", () => {

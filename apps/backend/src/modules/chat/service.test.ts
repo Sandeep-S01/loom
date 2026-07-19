@@ -134,6 +134,56 @@ describe("chat service", () => {
     );
   });
 
+  it("records registry model ids without writing them to legacy model columns", async () => {
+    const conversation = await conversations.createForUser(userId, "New Conversation");
+    const recordProviderAttempt = vi.fn();
+    const onProviderSuccess = vi.fn();
+
+    const service = createChatService({
+      conversationRepository: conversations,
+      providerCandidates: [
+        {
+          providerId: "prov_1",
+          providerName: "OpenRouter",
+          modelId: "mreg_1",
+          legacyModelId: null,
+          registryModelId: "mreg_1",
+          catalogModelId: "mcat_1",
+          modelName: "Registry Model",
+          externalModelKey: "provider/model",
+        },
+      ],
+      modelRoutingService: createMockRoutingService(makeEligibleModel()),
+      recordProviderAttempt,
+      onProviderSuccess,
+      invokeProvider: async () => ({
+        ok: true,
+        text: "registry reply",
+      }),
+    });
+
+    const response = await service.sendMessage({
+      userId,
+      conversationId: conversation.id,
+      content: [{ type: "text", text: "Use registry model" }],
+    });
+    const messages = await conversations.listMessages(conversation.id);
+
+    expect(response.provider?.modelId).toBe("mreg_1");
+    expect(response.assistantMessage?.modelId).toBeNull();
+    expect(response.assistantMessage?.registryModelId).toBe("mreg_1");
+    expect(messages.at(-1)?.modelId).toBeNull();
+    expect(messages.at(-1)?.registryModelId).toBe("mreg_1");
+    expect(recordProviderAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelId: null,
+        registryModelId: "mreg_1",
+        status: "success",
+      }),
+    );
+    expect(onProviderSuccess).not.toHaveBeenCalled();
+  });
+
   it("uses fallback service decisions after a routed model fails", async () => {
     const conversation = await conversations.createForUser(userId, "New Conversation");
     const usageService = createMockUsageService();

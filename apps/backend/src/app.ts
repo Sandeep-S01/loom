@@ -17,6 +17,7 @@ import {
   type ChatService,
   type ProviderInvoker,
 } from "./modules/chat/service.js";
+import { createDatabaseChatProviderCandidateReader } from "./modules/chat/provider-candidates.js";
 import {
   createDatabaseChatIdempotencyStore,
   createInMemoryChatIdempotencyStore,
@@ -325,6 +326,7 @@ export function buildApp(options: BuildAppOptions = {}) {
       eligibilityService: modelEligibilityService,
       attemptRepository: createInMemoryRoutingAttemptRepository(),
       logger: app.log,
+      metrics: operationalMetrics,
     });
   const modelFallbackService =
     options.modelFallbackService ??
@@ -344,6 +346,7 @@ export function buildApp(options: BuildAppOptions = {}) {
       ]),
       catalogService: modelCatalogService,
       logger: app.log,
+      metrics: operationalMetrics,
     });
   const chatService =
     options.chatService ??
@@ -649,6 +652,9 @@ export function buildApp(options: BuildAppOptions = {}) {
       async (modelsApp) => {
         await registerModelRoutes(modelsApp, {
           modelRegistryService,
+          modelEligibilityService: options.modelEligibilityService
+            ? modelEligibilityService
+            : undefined,
         });
       },
       {
@@ -788,11 +794,13 @@ export function buildProductionApp() {
   const modelRoutingService = createModelRoutingService({
     eligibilityService: modelEligibilityService,
     attemptRepository: createDatabaseRoutingAttemptRepository(),
+    metrics: operationalMetrics,
   });
   const modelFallbackService = createModelFallbackService({
     eligibilityService: modelEligibilityService,
     decisionRepository: createInMemoryFallbackDecisionRepository(),
   });
+  const chatProviderCandidateReader = createDatabaseChatProviderCandidateReader();
   const modelDiscoveryService = createModelDiscoveryService({
     providerReader: createDatabaseDiscoveryProviderReader(),
     jobRepository: createDatabaseDiscoveryJobRepository(),
@@ -801,6 +809,7 @@ export function buildProductionApp() {
       createOpenRouterDiscoveryAdapter(),
     ]),
     catalogService: modelCatalogService,
+    metrics: operationalMetrics,
   });
   const retentionCleanup = createRetentionCleanupService({
     policy: {
@@ -858,23 +867,7 @@ export function buildProductionApp() {
     chatService: createChatService({
       conversationRepository,
       getProviderCandidates: async () => {
-        const candidates = await modelRegistryService.listRoutingCandidates("chat");
-        return candidates.map((candidate) => ({
-          providerId: candidate.providerId,
-          providerName: candidate.providerName,
-          modelId: candidate.modelId,
-          modelName: candidate.modelName,
-          externalModelKey: candidate.externalModelKey,
-          baseType: candidate.driverKey,
-          providerPriority: candidate.providerPriority,
-          modelPriority: candidate.modelPriority,
-          supportsChat: candidate.supportsChat,
-          supportsAgent: candidate.supportsAgent,
-          supportsVision: candidate.supportsVision,
-          secretRef: candidate.secretRef,
-          requestsPerMinuteLimit: candidate.requestsPerMinuteLimit,
-          contextWindow: candidate.contextWindow,
-        }));
+        return chatProviderCandidateReader.listCandidates("chat");
       },
       invokeProvider: createProviderInvoker(driverRegistry),
       modelRoutingService,
@@ -884,25 +877,27 @@ export function buildProductionApp() {
       cooldownTracker: globalCooldownTracker,
       recordProviderAttempt: async (input) => {
         await recordProviderAttempt(input);
-        await analyticsService.recordAttempt({
-          conversationId: input.conversationId,
-          messageId: null,
-          providerId: input.providerId,
-          modelId: input.modelId,
-          attemptNo: input.attemptNo,
-          wasManualSelection: input.attemptNo === 1,
-          wasFailover: input.attemptNo > 1,
-          requestKind: "chat",
-          status: input.status === "success" ? "success" : "failed",
-          failureCode: input.failureCode,
-          latencyMs: input.endedAt.getTime() - input.startedAt.getTime(),
-          inputTokens: input.usage?.inputTokens ?? 0,
-          outputTokens: input.usage?.outputTokens ?? 0,
-          totalTokens: input.usage?.totalTokens ?? 0,
-          costUsdMicros: 0,
-          idempotencyKey: input.routingTraceId,
-          createdAt: input.endedAt.toISOString(),
-        });
+        if (input.modelId) {
+          await analyticsService.recordAttempt({
+            conversationId: input.conversationId,
+            messageId: null,
+            providerId: input.providerId,
+            modelId: input.modelId,
+            attemptNo: input.attemptNo,
+            wasManualSelection: input.attemptNo === 1,
+            wasFailover: input.attemptNo > 1,
+            requestKind: "chat",
+            status: input.status === "success" ? "success" : "failed",
+            failureCode: input.failureCode,
+            latencyMs: input.endedAt.getTime() - input.startedAt.getTime(),
+            inputTokens: input.usage?.inputTokens ?? 0,
+            outputTokens: input.usage?.outputTokens ?? 0,
+            totalTokens: input.usage?.totalTokens ?? 0,
+            costUsdMicros: 0,
+            idempotencyKey: input.routingTraceId,
+            createdAt: input.endedAt.toISOString(),
+          });
+        }
       },
       onProviderSuccess: async ({ modelId, usage }) => {
         await modelRegistryService.markAttemptSuccess(modelId, usage);
@@ -1076,6 +1071,7 @@ export function buildLocalRuntimeApp() {
       invokeProvider: createProviderInvoker(driverRegistry),
       cooldownTracker: globalCooldownTracker,
       recordProviderAttempt: async (input) => {
+        if (!input.modelId) return;
         await analyticsService.recordAttempt({
           conversationId: input.conversationId,
           messageId: null,

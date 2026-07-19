@@ -117,7 +117,8 @@ export async function recordProviderAttempt(input: {
   conversationId: string;
   routingTraceId: string;
   providerId: string;
-  modelId: string;
+  modelId?: string | null;
+  registryModelId?: string | null;
   attemptNo: number;
   status: "success" | "failed" | "switched";
   failureCode?: ProviderFailureCode;
@@ -136,7 +137,8 @@ export async function recordProviderAttempt(input: {
     conversationId: input.conversationId,
     agentRunId: null,
     providerId: input.providerId,
-    modelId: input.modelId,
+    modelId: input.modelId ?? null,
+    registryModelId: input.registryModelId ?? null,
     attemptNo: input.attemptNo,
     status: input.status,
     failureCode: input.failureCode ?? null,

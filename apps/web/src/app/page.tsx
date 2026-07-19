@@ -12,7 +12,7 @@ export default function LandingPage() {
     <main className="min-h-dvh bg-[color:var(--color-bg-base)] text-text-primary grid-bg">
       <header className="fixed top-0 w-full z-50 border-b border-[color:var(--color-border-subtle)] bg-[color:var(--color-bg-base)]/92 backdrop-blur-sm">
         <nav className="public-container flex justify-between items-center gap-3 py-4 sm:px-5">
-          <Link href="/" className="inline-flex items-center" prefetch={false}>
+          <Link href="/" className="public-focus inline-flex items-center" prefetch={false}>
             <LoomLogo
               ariaLabel="Loom home"
               className="select-none"
@@ -21,10 +21,10 @@ export default function LandingPage() {
           </Link>
 
           <div className="flex items-center gap-2 sm:gap-6">
-            <Link className="text-[11px] sm:text-xs font-semibold uppercase tracking-[0.16em] sm:tracking-widest text-text-secondary hover:text-[color:var(--color-accent)] transition-colors" href="/login" prefetch={false}>
+            <Link className="public-focus landing-header-link text-[11px] sm:text-xs font-semibold uppercase tracking-[0.16em] sm:tracking-widest text-text-secondary hover:text-[color:var(--color-accent-hover)] transition-colors" href="/login" prefetch={false}>
               Sign in
             </Link>
-            <Link className="bg-[color:var(--color-accent)] text-[color:var(--color-accent-text)] text-[11px] sm:text-xs font-medium uppercase tracking-[0.16em] sm:tracking-widest px-3 py-2 sm:px-4 rounded-md hover:bg-[color:var(--color-accent-hover)] transition-colors" href="/register" prefetch={false}>
+            <Link className="public-focus landing-header-link landing-primary-cta text-[11px] sm:text-xs font-medium uppercase tracking-[0.16em] sm:tracking-widest px-3 py-2 sm:px-4 rounded-md transition-colors" href="/register" prefetch={false}>
               Create account
             </Link>
           </div>
@@ -37,26 +37,26 @@ export default function LandingPage() {
             <div className="inline-flex items-center gap-2 mb-6 border border-[color:var(--color-border-subtle)] px-3 py-1 bg-[color:var(--color-surface-panel)] rounded-full">
               <span className="w-1.5 h-1.5 bg-[color:var(--color-accent)] rounded-full pulse-dot"></span>
               <span className="font-label text-[11px] text-text-secondary uppercase tracking-[0.12em]">
-                AI workspace for teams
+                Admin-controlled AI workspace
               </span>
             </div>
 
             <h1 className="font-headline text-[2.2rem] sm:text-5xl md:text-6xl font-normal text-text-primary leading-[1.02] sm:leading-[1.08] tracking-[-0.04em] mb-6 sm:mb-8">
-              Chat with your models,
+              AI chat with approved models
               <br />
-              files, and workspaces in one place.
+              and local workspace context.
             </h1>
 
             <p className="text-sm sm:text-base md:text-lg text-text-secondary max-w-xl leading-relaxed mb-8 sm:mb-10">
-              Loom helps your team manage AI chat, connect local workspaces, switch
-              between models, and monitor availability without juggling multiple tools.
+              Loom gives customers one simple workspace for chat while admins control
+              providers, approved models, routing, fallback, and availability from the backend.
             </p>
 
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
-              <Link href="/register" className="inline-flex items-center justify-center bg-[color:var(--color-accent)] text-[color:var(--color-accent-text)] font-medium text-sm px-6 sm:px-10 py-4 rounded-md text-center hover:bg-[color:var(--color-accent-hover)] transition-colors" prefetch={false}>
-                Create account
+              <Link href="/register" className="public-focus landing-primary-cta inline-flex items-center justify-center font-medium text-sm px-6 sm:px-10 py-4 rounded-md text-center transition-colors" prefetch={false}>
+                Start testing Loom
               </Link>
-              <Link href="/login" className="inline-flex items-center justify-center border border-[color:var(--color-border-strong)] bg-[color:var(--color-surface-panel)] text-text-primary font-medium text-sm px-6 sm:px-10 py-4 rounded-md text-center hover:bg-[color:var(--color-bg-hover)] transition-colors" prefetch={false}>
+              <Link href="/login" className="public-focus landing-secondary-cta inline-flex items-center justify-center border border-[color:var(--color-border-strong)] bg-[color:var(--color-surface-panel)] text-text-primary font-medium text-sm px-6 sm:px-10 py-4 rounded-md text-center hover:bg-[color:var(--color-bg-hover)] transition-colors" prefetch={false}>
                 Sign in
               </Link>
             </div>
@@ -78,12 +78,12 @@ export default function LandingPage() {
               <div className="p-4 sm:p-5 space-y-4 sm:space-y-5">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="p-4 border border-[color:var(--color-border-subtle)] bg-[color:var(--color-bg-hover)] rounded-md">
-                    <div className="text-[9px] uppercase font-mono text-text-secondary mb-1">Chat</div>
-                    <div className="font-mono text-sm text-text-primary font-bold">Model selection</div>
+                    <div className="text-[9px] uppercase font-mono text-text-secondary mb-1">Registry</div>
+                    <div className="font-mono text-sm text-text-primary font-bold">Approved models</div>
                   </div>
                   <div className="p-4 border border-[color:var(--color-border-subtle)] bg-[color:var(--color-bg-hover)] rounded-md">
-                    <div className="text-[9px] uppercase font-mono text-text-secondary mb-1">Workspace</div>
-                    <div className="font-mono text-sm text-[color:var(--color-accent)] font-bold">Local context</div>
+                    <div className="text-[9px] uppercase font-mono text-text-secondary mb-1">Policy</div>
+                    <div className="font-mono text-sm text-[color:var(--color-accent)] font-bold">Backend control</div>
                   </div>
                 </div>
 
@@ -105,8 +105,8 @@ export default function LandingPage() {
 
                     <div className="flex items-center gap-3 p-3 border border-[color:var(--color-border-strong)] bg-[color:var(--color-surface-panel)] rounded-md animate-trace-2">
                       <span className="font-mono text-[10px] text-[color:var(--color-accent)]">02</span>
-                      <span className="font-mono text-xs text-[color:var(--color-accent)] font-bold">ROUTING:</span>
-                      <span className="font-mono text-xs text-text-primary">Select an available model and workspace context</span>
+                      <span className="font-mono text-xs text-[color:var(--color-accent)] font-bold">ELIGIBILITY:</span>
+                      <span className="font-mono text-xs text-text-primary">Check approved models, policy, and health</span>
                     </div>
 
                     <div className="flex justify-center py-0.5 animate-trace-arrow-2">
@@ -115,8 +115,8 @@ export default function LandingPage() {
 
                     <div className="flex items-center gap-3 p-3 border border-[color:var(--color-border-subtle)] bg-[color:var(--color-bg-hover)] rounded-md animate-trace-3">
                       <span className="font-mono text-[10px] text-[color:var(--color-accent)]">03</span>
-                      <span className="font-mono text-xs text-text-secondary">RESULT:</span>
-                      <span className="font-mono text-xs text-text-primary">Response delivered with fallback support if needed</span>
+                      <span className="font-mono text-xs text-text-secondary">ROUTE:</span>
+                      <span className="font-mono text-xs text-text-primary">Use a healthy model, with fallback if needed</span>
                     </div>
                   </div>
                 </div>
@@ -132,43 +132,44 @@ export default function LandingPage() {
                 What Loom helps you do
               </span>
               <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-text-primary tracking-tight max-w-2xl">
-                Manage models, workspace context, and fallback handling without extra operational overhead.
+                Give customers simple chat while admins control model access and reliability.
               </h2>
             </div>
             <div className="col-span-12 lg:col-span-4 lg:text-right">
               <p className="text-sm text-text-secondary leading-relaxed">
-                Built for daily use by teams that need reliable AI chat, connected files, and clear model controls.
+                Built for teams that need backend-owned provider credentials, approved models,
+                fallback routing, and connected local context.
               </p>
             </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="tech-card min-h-[260px] p-6 sm:p-8 flex flex-col justify-between bg-[color:var(--color-surface-panel)]">
+            <div className="tech-card min-h-[190px] md:min-h-[260px] p-6 sm:p-8 flex flex-col justify-between bg-[color:var(--color-surface-panel)]">
               <Sliders className="text-[color:var(--color-accent)] h-7 w-7" strokeWidth={1.5} />
               <div>
-                <h3 className="text-xl font-bold text-text-primary mb-3">Model management</h3>
+                <h3 className="text-xl font-bold text-text-primary mb-3">Approved model registry</h3>
                 <p className="text-sm text-text-secondary leading-relaxed">
-                  Keep your available models, provider keys, and routing order in one place.
+                  Admins approve discovered free models before customers can select or route to them.
                 </p>
               </div>
             </div>
 
-            <div className="tech-card min-h-[260px] p-6 sm:p-8 flex flex-col justify-between md:mt-6 bg-[color:var(--color-surface-panel)]">
+            <div className="tech-card min-h-[190px] md:min-h-[260px] p-6 sm:p-8 flex flex-col justify-between md:mt-6 bg-[color:var(--color-surface-panel)]">
               <GitFork className="text-[color:var(--color-accent)] h-7 w-7 rotate-180" strokeWidth={1.5} />
               <div>
-                <h3 className="text-xl font-bold text-text-primary mb-3">Fallback routing</h3>
+                <h3 className="text-xl font-bold text-text-primary mb-3">Automatic routing and fallback</h3>
                 <p className="text-sm text-text-secondary leading-relaxed">
-                  Keep chats moving when a provider is rate limited or temporarily unavailable.
+                  Keep chats moving when an approved provider is rate limited or temporarily unavailable.
                 </p>
               </div>
             </div>
 
-            <div className="tech-card min-h-[260px] p-6 sm:p-8 flex flex-col justify-between bg-[color:var(--color-surface-panel)]">
+            <div className="tech-card min-h-[190px] md:min-h-[260px] p-6 sm:p-8 flex flex-col justify-between bg-[color:var(--color-surface-panel)]">
               <Database className="text-[color:var(--color-accent)] h-7 w-7" strokeWidth={1.5} />
               <div>
-                <h3 className="text-xl font-bold text-text-primary mb-3">Workspace context</h3>
+                <h3 className="text-xl font-bold text-text-primary mb-3">Local workspace context</h3>
                 <p className="text-sm text-text-secondary leading-relaxed">
-                  Connect local folders so your team can work with project files from the same workspace.
+                  Pair local folders so approved chat workflows can reference project context safely.
                 </p>
               </div>
             </div>
@@ -184,7 +185,7 @@ export default function LandingPage() {
               Set up Loom in four simple steps.
             </h2>
             <p className="text-text-secondary mb-8 leading-relaxed">
-              Create your account, connect the tools you need, and start using the workspace.
+              Create a workspace, approve free models, and let customers chat through eligible routes.
             </p>
 
             <div className="p-5 sm:p-6 border border-[color:var(--color-border-subtle)] bg-[color:var(--color-surface-panel)] rounded-lg">
@@ -194,7 +195,7 @@ export default function LandingPage() {
                 </span>
               </div>
               <p className="text-xs text-text-secondary leading-relaxed">
-                The same workspace can support everyday chat, connected folders, and admin model management.
+                Provider keys stay backend-owned. Customers only see models approved by admins.
               </p>
             </div>
           </div>
@@ -206,9 +207,9 @@ export default function LandingPage() {
                   01
                 </span>
                 <div>
-                  <h4 className="text-lg font-bold text-text-primary mb-2">Create your account</h4>
+                  <h4 className="text-lg font-bold text-text-primary mb-2">Create the workspace</h4>
                   <p className="text-sm text-text-secondary leading-relaxed">
-                    Sign up and open your Loom workspace.
+                    Open Loom and invite testers into one simple chat workspace.
                   </p>
                 </div>
               </div>
@@ -220,9 +221,9 @@ export default function LandingPage() {
                   02
                 </span>
                 <div>
-                  <h4 className="text-lg font-bold text-text-primary mb-2">Add models and provider keys</h4>
+                  <h4 className="text-lg font-bold text-text-primary mb-2">Admin connects providers</h4>
                   <p className="text-sm text-text-secondary leading-relaxed">
-                    Configure the models your team can use for chat and automation.
+                    Keep provider credentials on the backend and discover available free models.
                   </p>
                 </div>
               </div>
@@ -234,9 +235,9 @@ export default function LandingPage() {
                   03
                 </span>
                 <div>
-                  <h4 className="text-lg font-bold text-text-primary mb-2">Connect local workspaces</h4>
+                  <h4 className="text-lg font-bold text-text-primary mb-2">Approve eligible models</h4>
                   <p className="text-sm text-text-secondary leading-relaxed">
-                    Pair the companion app and register the folders your team works in.
+                    Move discovered models into the registry and control visibility with policy.
                   </p>
                 </div>
               </div>
@@ -248,9 +249,9 @@ export default function LandingPage() {
                   04
                 </span>
                 <div>
-                  <h4 className="text-lg font-bold text-text-primary mb-2">Start working</h4>
+                  <h4 className="text-lg font-bold text-text-primary mb-2">Customers start chatting</h4>
                   <p className="text-sm text-text-secondary leading-relaxed">
-                    Use chat, switch models, and monitor availability from one workspace.
+                    Customers use approved models while Loom handles health checks, routing, and fallback.
                   </p>
                 </div>
               </div>
@@ -264,15 +265,16 @@ export default function LandingPage() {
           <div className="relative z-10 grid grid-cols-12 gap-8 items-center">
             <div className="col-span-12 lg:col-span-8">
               <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-text-primary mb-5 md:mb-6 tracking-tight">
-                One product for chat, models, and workspace access
+                One controlled workspace for customer AI chat
               </h2>
               <p className="text-text-secondary max-w-xl text-base md:text-lg mb-0 leading-relaxed">
-                Give customers a simple chat workspace while your team keeps control over provider setup, model availability, and connected local folders.
+                Give customers a simple chat experience while your team keeps control over provider setup,
+                approved models, routing policy, and connected local folders.
               </p>
             </div>
             <div className="col-span-12 lg:col-span-4 flex justify-start lg:justify-end">
-              <Link href="/register" className="inline-flex items-center justify-center bg-[color:var(--color-accent)] text-[color:var(--color-accent-text)] font-medium text-sm px-6 sm:px-10 py-4 sm:py-5 uppercase tracking-widest rounded-md hover:bg-[color:var(--color-accent-hover)] transition-colors" prefetch={false}>
-                Get started
+              <Link href="/register" className="public-focus landing-primary-cta inline-flex items-center justify-center font-medium text-sm px-6 sm:px-10 py-4 sm:py-5 uppercase tracking-widest rounded-md transition-colors" prefetch={false}>
+                Start testing Loom
               </Link>
             </div>
           </div>
@@ -284,20 +286,21 @@ export default function LandingPage() {
           <div className="space-y-5">
             <LoomLogo className="select-none" textClassName="h-6 sm:h-[25px] w-auto" />
             <p className="text-sm text-text-secondary leading-relaxed max-w-sm">
-              Loom is an AI workspace for customer chat, model management, workspace connection, and provider monitoring.
+              Loom is an admin-controlled AI workspace for customer chat, approved model routing,
+              local context, and provider monitoring.
             </p>
           </div>
 
           <div className="flex flex-col sm:flex-row gap-4">
             <Link
-              className="bg-[color:var(--color-accent)] text-[color:var(--color-accent-text)] text-xs font-bold uppercase tracking-widest px-4 py-3 text-center hover:opacity-90 transition-opacity"
+              className="public-focus landing-primary-cta inline-flex items-center justify-center rounded-md text-xs font-bold uppercase tracking-widest px-4 py-3 text-center transition-colors"
               href="/register"
               prefetch={false}
             >
-              Create account
+              Start testing
             </Link>
             <Link
-              className="border border-[color:var(--color-border-subtle)] text-text-primary text-xs font-bold uppercase tracking-widest px-4 py-3 text-center hover:bg-[color:var(--color-bg-hover)] transition-all"
+              className="public-focus landing-secondary-cta inline-flex items-center justify-center rounded-md border border-[color:var(--color-border-subtle)] text-text-primary text-xs font-bold uppercase tracking-widest px-4 py-3 text-center hover:bg-[color:var(--color-bg-hover)] transition-all"
               href="/login"
               prefetch={false}
             >
@@ -307,7 +310,7 @@ export default function LandingPage() {
         </div>
 
         <div className="public-container mt-10 pt-6 sm:px-5 border-t border-[color:var(--color-border-subtle)]/10">
-          <span className="text-[10px] font-mono text-text-secondary/50">© 2026 Loom. All rights reserved.</span>
+          <span className="text-[10px] font-mono text-text-secondary/50">(c) 2026 Loom. All rights reserved.</span>
         </div>
       </footer>
     </main>

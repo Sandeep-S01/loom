@@ -23,6 +23,17 @@ export interface OperationalMetrics {
     durationMs: number;
   }): void;
   observeProviderAttempt(event: ProviderMetricEvent): void;
+  observeRoutingAttempt(input: {
+    mode: "chat" | "agent";
+    status: string;
+    reasonCode?: string | null;
+  }): void;
+  observeDiscoveryJob(input: {
+    providerId: string;
+    status: string;
+    triggerType: string;
+    durationMs: number;
+  }): void;
   setDependencyStatus(dependency: "database" | "redis" | "provider_registry", healthy: boolean): void;
   setEligibleModels(count: number): void;
   render(): Promise<string>;
@@ -81,6 +92,25 @@ export function createOperationalMetrics(options: {
     help: "Current number of eligible chat models.",
     registers: [registry],
   });
+  const routingAttempts = new Counter({
+    name: "loom_routing_attempts_total",
+    help: "Total model routing decisions.",
+    labelNames: ["mode", "status", "reason_code"] as const,
+    registers: [registry],
+  });
+  const discoveryJobs = new Counter({
+    name: "loom_discovery_jobs_total",
+    help: "Total model discovery jobs by provider and outcome.",
+    labelNames: ["provider_id", "status", "trigger_type"] as const,
+    registers: [registry],
+  });
+  const discoveryDuration = new Histogram({
+    name: "loom_discovery_job_duration_seconds",
+    help: "Model discovery job duration in seconds.",
+    labelNames: ["provider_id", "status"] as const,
+    buckets: [1, 5, 10, 30, 60, 120, 300, 600],
+    registers: [registry],
+  });
 
   return {
     contentType: registry.contentType,
@@ -108,6 +138,25 @@ export function createOperationalMetrics(options: {
       if (event.fallbackUsed) {
         failovers.inc({ provider_id: labels.provider_id, status: labels.status });
       }
+    },
+    observeRoutingAttempt(input) {
+      routingAttempts.inc({
+        mode: input.mode,
+        status: normalizeBoundedLabel(input.status),
+        reason_code: normalizeBoundedLabel(input.reasonCode ?? "none"),
+      });
+    },
+    observeDiscoveryJob(input) {
+      const labels = {
+        provider_id: normalizeBoundedLabel(input.providerId),
+        status: normalizeBoundedLabel(input.status),
+        trigger_type: normalizeBoundedLabel(input.triggerType),
+      };
+      discoveryJobs.inc(labels);
+      discoveryDuration.observe(
+        { provider_id: labels.provider_id, status: labels.status },
+        Math.max(0, input.durationMs) / 1_000,
+      );
     },
     setDependencyStatus(dependency, healthy) {
       dependencyHealth.set({ dependency }, healthy ? 1 : 0);

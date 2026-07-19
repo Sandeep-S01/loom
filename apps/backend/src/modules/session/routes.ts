@@ -30,8 +30,14 @@ export async function registerSessionRoutes(
 ) {
   const loginAttempts = new Map<string, { count: number; resetAt: number }>();
 
-  app.get("/", async (request) => {
+  app.get("/", async (request, reply) => {
     if (!request.sessionUser) {
+      const query = (request.query as { optional?: unknown } | undefined) ?? {};
+      if (query.optional === "true") {
+        reply.status(204);
+        return;
+      }
+
       throw unauthorized("Authentication required.");
     }
 

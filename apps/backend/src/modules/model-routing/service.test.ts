@@ -14,9 +14,13 @@ describe("model routing service", () => {
       ineligible: [],
     });
     const repository = createInMemoryRoutingAttemptRepository();
+    const metrics = {
+      observeRoutingAttempt: vi.fn(),
+    };
     const service = createModelRoutingService({
       eligibilityService,
       attemptRepository: repository,
+      metrics,
     });
 
     const result = await service.selectRoute({
@@ -48,6 +52,11 @@ describe("model routing service", () => {
       estimatedInputTokens: 100,
       requestedOutputTokens: 50,
       includeIneligible: true,
+    });
+    expect(metrics.observeRoutingAttempt).toHaveBeenCalledWith({
+      mode: "chat",
+      status: "selected",
+      reasonCode: null,
     });
   });
 
@@ -91,6 +100,78 @@ describe("model routing service", () => {
       eligibleCount: 0,
       ineligibleCount: 1,
       reasonCode: "runtime_unavailable",
+    });
+  });
+
+  it("honors a preferred registry model only when it is eligible", async () => {
+    const service = createModelRoutingService({
+      eligibilityService: createEligibilityService({
+        eligible: [
+          makeCandidate({ registryModelId: "mreg_primary", priorityRank: 1 }),
+          makeCandidate({ registryModelId: "mreg_requested", priorityRank: 5 }),
+        ],
+        ineligible: [],
+      }),
+      attemptRepository: createInMemoryRoutingAttemptRepository(),
+    });
+
+    const result = await service.selectRoute({
+      mode: "chat",
+      userId: "usr_1",
+      companionAvailable: false,
+      preferredRegistryModelId: "mreg_requested",
+      requestId: "route_preferred",
+    });
+
+    expect(result.model?.registryModelId).toBe("mreg_requested");
+    expect(result.attempt).toMatchObject({
+      registryModelId: "mreg_requested",
+      status: "selected",
+      metadata: expect.objectContaining({
+        preferredRegistryModelId: "mreg_requested",
+      }),
+    });
+  });
+
+  it("does not silently fall back when a preferred registry model is ineligible", async () => {
+    const service = createModelRoutingService({
+      eligibilityService: createEligibilityService({
+        eligible: [makeCandidate({ registryModelId: "mreg_other" })],
+        ineligible: [
+          {
+            registryModelId: "mreg_requested",
+            catalogModelId: "mcat_1",
+            providerId: "prov_1",
+            providerName: "OpenRouter",
+            externalModelKey: "provider/requested",
+            displayName: "Requested Model",
+            reasons: [
+              {
+                code: "policy_disabled",
+                message: "Model is disabled by policy.",
+              },
+            ],
+          },
+        ],
+      }),
+      attemptRepository: createInMemoryRoutingAttemptRepository(),
+    });
+
+    const result = await service.selectRoute({
+      mode: "chat",
+      userId: "usr_1",
+      companionAvailable: false,
+      preferredRegistryModelId: "mreg_requested",
+      requestId: "route_preferred_ineligible",
+    });
+
+    expect(result.model).toBeNull();
+    expect(result.attempt).toMatchObject({
+      registryModelId: null,
+      status: "no_eligible_models",
+      eligibleCount: 1,
+      ineligibleCount: 1,
+      reasonCode: "selected_model_ineligible",
     });
   });
 

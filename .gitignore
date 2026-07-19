@@ -48,6 +48,8 @@ coverage/
 playwright-report/
 test-results/
 .playwright/
+tmp/
+tmp-*/
 backups/
 deployment/runtime/
 release-evidence/

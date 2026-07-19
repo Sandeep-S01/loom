@@ -3,7 +3,7 @@ import { loginAsCustomer } from "./helpers";
 
 test("prevents a customer from entering the admin console", async ({ page }) => {
   await loginAsCustomer(page);
-  const response = await page.request.get("/api/v1/admin/failover-attempts");
+  const response = await page.request.get("/api/v1/admin/routing-attempts");
   expect(response.status()).toBe(403);
 
   await page.goto("/admin");

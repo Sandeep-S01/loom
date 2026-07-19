@@ -21,6 +21,9 @@ describe("model discovery service", () => {
       warn: vi.fn(),
       error: vi.fn(),
     };
+    const metrics = {
+      observeDiscoveryJob: vi.fn(),
+    };
     const service = createModelDiscoveryService({
       providerReader: createInMemoryDiscoveryProviderReader([makeProvider()]),
       jobRepository: createInMemoryDiscoveryJobRepository(),
@@ -42,6 +45,7 @@ describe("model discovery service", () => {
       ]),
       catalogService,
       logger,
+      metrics,
     });
 
     const result = await service.runProviderDiscovery({
@@ -73,6 +77,13 @@ describe("model discovery service", () => {
         providerId: "prv_openrouter",
       }),
       "Model discovery job succeeded",
+    );
+    expect(metrics.observeDiscoveryJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerId: "prv_openrouter",
+        status: "succeeded",
+        triggerType: "manual",
+      }),
     );
   });
 

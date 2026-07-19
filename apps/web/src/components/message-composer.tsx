@@ -316,6 +316,7 @@ export function MessageComposer({
           </div>
           
           <button
+            aria-label="Send message"
             className="send-btn"
             disabled={isButtonDisabled}
             onClick={handleSubmit}
