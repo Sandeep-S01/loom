@@ -92,6 +92,13 @@
       "when": 1784258400000,
       "tag": "0012_model_registry",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1784344800000,
+      "tag": "0013_model_policy",
+      "breakpoints": true
     }
   ]
 }

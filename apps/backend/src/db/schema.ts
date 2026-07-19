@@ -245,6 +245,41 @@ export const modelRegistry = pgTable(
   ],
 );
 
+export const modelPolicy = pgTable(
+  "model_policy",
+  {
+    id: varchar("id", { length: 50 }).primaryKey(),
+    registryModelId: varchar("registry_model_id", { length: 50 })
+      .notNull()
+      .references(() => modelRegistry.id),
+    enabled: boolean("enabled").notNull().default(true),
+    visibleInSelector: boolean("visible_in_selector").notNull().default(true),
+    priorityRank: integer("priority_rank").notNull().default(100),
+    defaultForChat: boolean("default_for_chat").notNull().default(false),
+    defaultForAgent: boolean("default_for_agent").notNull().default(false),
+    requiresCompanion: boolean("requires_companion").notNull().default(false),
+    requestsPerMinuteLimit: integer("requests_per_minute_limit"),
+    tokensPerDayLimit: integer("tokens_per_day_limit"),
+    tokensPerRequestLimit: integer("tokens_per_request_limit"),
+    notes: text("notes"),
+    createdByUserId: varchar("created_by_user_id", { length: 50 })
+      .notNull()
+      .references(() => users.id),
+    updatedByUserId: varchar("updated_by_user_id", { length: 50 })
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("uq_model_policy_registry_model").on(table.registryModelId),
+    index("idx_model_policy_enabled").on(table.enabled),
+    index("idx_model_policy_visible").on(table.visibleInSelector),
+    index("idx_model_policy_priority").on(table.priorityRank),
+    index("idx_model_policy_updated_at").on(table.updatedAt),
+  ],
+);
+
 export const conversations = pgTable(
   "conversations",
   {

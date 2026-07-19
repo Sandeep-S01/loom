@@ -89,6 +89,7 @@ import { registerAdminRoutes } from "./modules/admin/routes.js";
 import { registerProviderAdminRoutes } from "./modules/providers/admin-routes.js";
 import { registerModelCatalogAdminRoutes } from "./modules/model-catalog/admin-routes.js";
 import { registerModelRegistryAdminRoutes } from "./modules/model-registry/admin-routes.js";
+import { registerModelPolicyAdminRoutes } from "./modules/model-policy/admin-routes.js";
 import {
   createProviderManagementService,
 } from "./modules/providers/management-service.js";
@@ -116,6 +117,14 @@ import {
   createInMemoryModelRegistryRepository,
 } from "./modules/model-registry/repository.js";
 import type { ModelRegistryApprovalService } from "./modules/model-registry/interfaces.js";
+import { createModelPolicyService } from "./modules/model-policy/service.js";
+import {
+  createDatabaseModelPolicyRegistryReader,
+  createDatabaseModelPolicyRepository,
+  createInMemoryModelPolicyRegistryReader,
+  createInMemoryModelPolicyRepository,
+} from "./modules/model-policy/repository.js";
+import type { ModelPolicyService } from "./modules/model-policy/interfaces.js";
 import { checkDatabaseConnection } from "./db/connection.js";
 import { checkRedisConnection } from "./redis/client.js";
 import {
@@ -136,6 +145,7 @@ interface BuildAppOptions {
   providerManagementService?: ProviderManagementService;
   modelCatalogService?: ModelCatalogService;
   modelRegistryApprovalService?: ModelRegistryApprovalService;
+  modelPolicyService?: ModelPolicyService;
   dashboardService?: DashboardService;
   companionService?: CompanionService;
   workspacesService?: WorkspacesService;
@@ -192,6 +202,13 @@ export function buildApp(options: BuildAppOptions = {}) {
     createModelRegistryApprovalService({
       repository: createInMemoryModelRegistryRepository(),
       catalogReader: createInMemoryModelRegistryCatalogReader(),
+      logger: app.log,
+    });
+  const modelPolicyService =
+    options.modelPolicyService ??
+    createModelPolicyService({
+      repository: createInMemoryModelPolicyRepository(),
+      registryReader: createInMemoryModelPolicyRegistryReader(),
       logger: app.log,
     });
   const chatService =
@@ -525,6 +542,9 @@ export function buildApp(options: BuildAppOptions = {}) {
         await registerModelRegistryAdminRoutes(adminApp, {
           modelRegistryApprovalService,
         });
+        await registerModelPolicyAdminRoutes(adminApp, {
+          modelPolicyService,
+        });
       },
       {
         prefix: "/api/v1/admin",
@@ -571,6 +591,10 @@ export function buildProductionApp() {
     repository: createDatabaseModelRegistryRepository(),
     catalogReader: createDatabaseModelRegistryCatalogReader(),
   });
+  const modelPolicyService = createModelPolicyService({
+    repository: createDatabaseModelPolicyRepository(),
+    registryReader: createDatabaseModelPolicyRegistryReader(),
+  });
   const retentionCleanup = createRetentionCleanupService({
     policy: {
       modelUsageDays: getEnvInt("MODEL_USAGE_RETENTION_DAYS", 30),
@@ -611,6 +635,7 @@ export function buildProductionApp() {
     providerManagementService,
     modelCatalogService,
     modelRegistryApprovalService,
+    modelPolicyService,
     marketplaceService,
     dashboardService,
     companionService,

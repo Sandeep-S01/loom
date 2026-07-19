@@ -7,6 +7,7 @@ import { createInMemoryWorkspacesRepository } from "./modules/workspaces/reposit
 import { createWorkspacesService } from "./modules/workspaces/service.js";
 import { createInMemoryModelRegistryService } from "./modules/models/service.js";
 import type { ModelRegistryApprovalService } from "./modules/model-registry/interfaces.js";
+import type { ModelPolicyService } from "./modules/model-policy/interfaces.js";
 import type { SessionService } from "./modules/session/service.js";
 import { SESSION_COOKIE_NAME } from "./plugins/session.js";
 
@@ -898,6 +899,150 @@ describe("admin route protection", () => {
     const response = await customerApp.inject({
       method: "GET",
       url: "/api/v1/admin/model-registry",
+      cookies: {
+        [SESSION_COOKIE_NAME]: "session_customer",
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.message).toBe("Admin access required.");
+
+    await customerApp.close();
+  });
+
+  it("returns model policy results to admins with parsed query filters", async () => {
+    const listPolicies = vi.fn(async (filters) => ({
+      items: [],
+      page: filters.page,
+      pageSize: filters.pageSize,
+      total: 0,
+      hasNextPage: false,
+    }));
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+      modelPolicyService: {
+        listPolicies,
+        getPolicy: vi.fn(),
+        upsertPolicy: vi.fn(),
+        deletePolicy: vi.fn(),
+      },
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/model-policy?pageSize=1000&enabled=true&defaultsOnly=true",
+      cookies: { [SESSION_COOKIE_NAME]: "session_admin" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      items: [],
+      page: 1,
+      pageSize: 100,
+      total: 0,
+      hasNextPage: false,
+    });
+    expect(listPolicies).toHaveBeenCalledWith(
+      expect.objectContaining({
+        enabled: true,
+        defaultsOnly: true,
+        pageSize: 100,
+      }),
+    );
+  });
+
+  it("updates model policy for admins", async () => {
+    const upsertPolicy: ModelPolicyService["upsertPolicy"] = vi.fn(async (input) => ({
+      id: "mpol_deepseek",
+      registryModelId: input.registryModelId,
+      enabled: input.patch.enabled ?? true,
+      visibleInSelector: input.patch.visibleInSelector ?? true,
+      priorityRank: input.patch.priorityRank ?? 100,
+      defaultForChat: input.patch.defaultForChat ?? false,
+      defaultForAgent: input.patch.defaultForAgent ?? false,
+      requiresCompanion: input.patch.requiresCompanion ?? false,
+      requestsPerMinuteLimit: input.patch.requestsPerMinuteLimit ?? null,
+      tokensPerDayLimit: input.patch.tokensPerDayLimit ?? null,
+      tokensPerRequestLimit: input.patch.tokensPerRequestLimit ?? null,
+      notes: input.patch.notes ?? null,
+      createdByUserId: input.actorUserId,
+      updatedByUserId: input.actorUserId,
+      createdAt: "2026-07-19T00:00:00.000Z",
+      updatedAt: "2026-07-19T00:00:00.000Z",
+    }));
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+      modelPolicyService: {
+        listPolicies: vi.fn(),
+        getPolicy: vi.fn(),
+        upsertPolicy,
+        deletePolicy: vi.fn(),
+      },
+    });
+
+    const response = await app.inject({
+      method: "PUT",
+      url: "/api/v1/admin/model-policy/mreg_deepseek",
+      cookies: { [SESSION_COOKIE_NAME]: "session_admin" },
+      payload: {
+        enabled: false,
+        priorityRank: 20,
+        tokensPerDayLimit: 50_000,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(
+      expect.objectContaining({
+        registryModelId: "mreg_deepseek",
+        enabled: false,
+        priorityRank: 20,
+      }),
+    );
+    expect(upsertPolicy).toHaveBeenCalledWith({
+      registryModelId: "mreg_deepseek",
+      actorUserId: "usr_seeded",
+      patch: {
+        enabled: false,
+        priorityRank: 20,
+        tokensPerDayLimit: 50_000,
+      },
+    });
+  });
+
+  it("rejects invalid model policy payloads before service execution", async () => {
+    const upsertPolicy = vi.fn();
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+      modelPolicyService: {
+        listPolicies: vi.fn(),
+        getPolicy: vi.fn(),
+        upsertPolicy,
+        deletePolicy: vi.fn(),
+      },
+    });
+
+    const response = await app.inject({
+      method: "PUT",
+      url: "/api/v1/admin/model-policy/mreg_deepseek",
+      cookies: { [SESSION_COOKIE_NAME]: "session_admin" },
+      payload: {
+        priorityRank: -1,
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(upsertPolicy).not.toHaveBeenCalled();
+  });
+
+  it("blocks customer access to the model policy admin API", async () => {
+    const customerApp = buildApp({
+      sessionService: createCustomerTestSessionService(),
+    });
+
+    const response = await customerApp.inject({
+      method: "GET",
+      url: "/api/v1/admin/model-policy",
       cookies: {
         [SESSION_COOKIE_NAME]: "session_customer",
       },
