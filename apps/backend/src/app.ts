@@ -91,6 +91,7 @@ import { registerModelCatalogAdminRoutes } from "./modules/model-catalog/admin-r
 import { registerModelRegistryAdminRoutes } from "./modules/model-registry/admin-routes.js";
 import { registerModelPolicyAdminRoutes } from "./modules/model-policy/admin-routes.js";
 import { registerModelEligibilityRoutes } from "./modules/model-eligibility/routes.js";
+import { registerModelRuntimeHealthAdminRoutes } from "./modules/model-runtime-health/admin-routes.js";
 import {
   createProviderManagementService,
 } from "./modules/providers/management-service.js";
@@ -131,9 +132,16 @@ import {
   createDatabaseEligibilitySourceReader,
   createInMemoryEligibilitySourceReader,
   createStaticProviderHealthReader,
-  createStaticRuntimeHealthReader,
 } from "./modules/model-eligibility/repository.js";
 import type { ModelEligibilityService } from "./modules/model-eligibility/interfaces.js";
+import { createModelRuntimeHealthService } from "./modules/model-runtime-health/service.js";
+import {
+  createDatabaseModelRuntimeHealthRegistryReader,
+  createDatabaseModelRuntimeHealthRepository,
+  createInMemoryModelRuntimeHealthRegistryReader,
+  createInMemoryModelRuntimeHealthRepository,
+} from "./modules/model-runtime-health/repository.js";
+import type { ModelRuntimeHealthService } from "./modules/model-runtime-health/interfaces.js";
 import { checkDatabaseConnection } from "./db/connection.js";
 import { checkRedisConnection } from "./redis/client.js";
 import {
@@ -156,6 +164,7 @@ interface BuildAppOptions {
   modelRegistryApprovalService?: ModelRegistryApprovalService;
   modelPolicyService?: ModelPolicyService;
   modelEligibilityService?: ModelEligibilityService;
+  modelRuntimeHealthService?: ModelRuntimeHealthService;
   dashboardService?: DashboardService;
   companionService?: CompanionService;
   workspacesService?: WorkspacesService;
@@ -221,11 +230,18 @@ export function buildApp(options: BuildAppOptions = {}) {
       registryReader: createInMemoryModelPolicyRegistryReader(),
       logger: app.log,
     });
+  const modelRuntimeHealthService =
+    options.modelRuntimeHealthService ??
+    createModelRuntimeHealthService({
+      repository: createInMemoryModelRuntimeHealthRepository(),
+      registryReader: createInMemoryModelRuntimeHealthRegistryReader(),
+      logger: app.log,
+    });
   const modelEligibilityService =
     options.modelEligibilityService ??
     createModelEligibilityService({
       sourceReader: createInMemoryEligibilitySourceReader(),
-      runtimeHealthReader: createStaticRuntimeHealthReader(),
+      runtimeHealthReader: modelRuntimeHealthService,
       providerHealthReader: createStaticProviderHealthReader(),
       logger: app.log,
     });
@@ -574,6 +590,9 @@ export function buildApp(options: BuildAppOptions = {}) {
         await registerModelPolicyAdminRoutes(adminApp, {
           modelPolicyService,
         });
+        await registerModelRuntimeHealthAdminRoutes(adminApp, {
+          modelRuntimeHealthService,
+        });
       },
       {
         prefix: "/api/v1/admin",
@@ -624,9 +643,13 @@ export function buildProductionApp() {
     repository: createDatabaseModelPolicyRepository(),
     registryReader: createDatabaseModelPolicyRegistryReader(),
   });
+  const modelRuntimeHealthService = createModelRuntimeHealthService({
+    repository: createDatabaseModelRuntimeHealthRepository(),
+    registryReader: createDatabaseModelRuntimeHealthRegistryReader(),
+  });
   const modelEligibilityService = createModelEligibilityService({
     sourceReader: createDatabaseEligibilitySourceReader(),
-    runtimeHealthReader: createStaticRuntimeHealthReader(),
+    runtimeHealthReader: modelRuntimeHealthService,
     providerHealthReader: createStaticProviderHealthReader(),
   });
   const retentionCleanup = createRetentionCleanupService({
@@ -671,6 +694,7 @@ export function buildProductionApp() {
     modelRegistryApprovalService,
     modelPolicyService,
     modelEligibilityService,
+    modelRuntimeHealthService,
     marketplaceService,
     dashboardService,
     companionService,
