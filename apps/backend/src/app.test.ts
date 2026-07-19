@@ -8,6 +8,7 @@ import { createWorkspacesService } from "./modules/workspaces/service.js";
 import { createInMemoryModelRegistryService } from "./modules/models/service.js";
 import type { ModelRegistryApprovalService } from "./modules/model-registry/interfaces.js";
 import type { ModelPolicyService } from "./modules/model-policy/interfaces.js";
+import type { ModelEligibilityService } from "./modules/model-eligibility/interfaces.js";
 import type { SessionService } from "./modules/session/service.js";
 import { SESSION_COOKIE_NAME } from "./plugins/session.js";
 
@@ -1052,6 +1053,105 @@ describe("admin route protection", () => {
     expect(response.json().error.message).toBe("Admin access required.");
 
     await customerApp.close();
+  });
+});
+
+describe("model eligibility routes", () => {
+  it("returns request-time eligibility for authenticated users", async () => {
+    const evaluate: ModelEligibilityService["evaluate"] = vi.fn(async (context) => ({
+      mode: context.mode,
+      purpose: context.purpose,
+      eligible: [
+        {
+          registryModelId: "mreg_deepseek",
+          catalogModelId: "mcat_deepseek",
+          providerId: "prv_openrouter",
+          providerName: "OpenRouter",
+          externalModelKey: "deepseek/deepseek-chat",
+          displayName: "DeepSeek Chat",
+          capabilities: {
+            chat: true,
+            agent: false,
+            vision: false,
+            toolUse: true,
+            jsonMode: true,
+          },
+          contextWindow: 65_536,
+          maxOutputTokens: 8_192,
+          priorityRank: 10,
+          providerPriorityRank: 10,
+          defaultForChat: true,
+          defaultForAgent: false,
+          requiresCompanion: false,
+          requestsPerMinuteLimit: 60,
+          tokensPerDayLimit: 100_000,
+          tokensPerRequestLimit: 8_000,
+          runtimeStatus: "healthy" as const,
+          providerHealthStatus: "healthy" as const,
+          reasons: [
+            {
+              code: "eligible" as const,
+              message: "Model is eligible for this request.",
+            },
+          ],
+        },
+      ],
+      ineligible: [],
+    }));
+    app = buildApp({
+      sessionService: createCustomerTestSessionService(),
+      modelEligibilityService: { evaluate },
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/eligibility?mode=chat&purpose=selector&estimatedInputTokens=100&requestedOutputTokens=200",
+      cookies: { [SESSION_COOKIE_NAME]: "session_customer" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().eligible[0].registryModelId).toBe("mreg_deepseek");
+    expect(evaluate).toHaveBeenCalledWith({
+      mode: "chat",
+      purpose: "selector",
+      companionAvailable: false,
+      estimatedInputTokens: 100,
+      requestedOutputTokens: 200,
+      includeIneligible: false,
+    });
+  });
+
+  it("requires admin access for eligibility diagnostics", async () => {
+    const evaluate = vi.fn();
+    app = buildApp({
+      sessionService: createCustomerTestSessionService(),
+      modelEligibilityService: { evaluate },
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/eligibility?includeIneligible=true",
+      cookies: { [SESSION_COOKIE_NAME]: "session_customer" },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(evaluate).not.toHaveBeenCalled();
+  });
+
+  it("requires authentication for eligibility", async () => {
+    const evaluate = vi.fn();
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+      modelEligibilityService: { evaluate },
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/eligibility",
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(evaluate).not.toHaveBeenCalled();
   });
 });
 

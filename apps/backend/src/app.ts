@@ -90,6 +90,7 @@ import { registerProviderAdminRoutes } from "./modules/providers/admin-routes.js
 import { registerModelCatalogAdminRoutes } from "./modules/model-catalog/admin-routes.js";
 import { registerModelRegistryAdminRoutes } from "./modules/model-registry/admin-routes.js";
 import { registerModelPolicyAdminRoutes } from "./modules/model-policy/admin-routes.js";
+import { registerModelEligibilityRoutes } from "./modules/model-eligibility/routes.js";
 import {
   createProviderManagementService,
 } from "./modules/providers/management-service.js";
@@ -125,6 +126,14 @@ import {
   createInMemoryModelPolicyRepository,
 } from "./modules/model-policy/repository.js";
 import type { ModelPolicyService } from "./modules/model-policy/interfaces.js";
+import { createModelEligibilityService } from "./modules/model-eligibility/service.js";
+import {
+  createDatabaseEligibilitySourceReader,
+  createInMemoryEligibilitySourceReader,
+  createStaticProviderHealthReader,
+  createStaticRuntimeHealthReader,
+} from "./modules/model-eligibility/repository.js";
+import type { ModelEligibilityService } from "./modules/model-eligibility/interfaces.js";
 import { checkDatabaseConnection } from "./db/connection.js";
 import { checkRedisConnection } from "./redis/client.js";
 import {
@@ -146,6 +155,7 @@ interface BuildAppOptions {
   modelCatalogService?: ModelCatalogService;
   modelRegistryApprovalService?: ModelRegistryApprovalService;
   modelPolicyService?: ModelPolicyService;
+  modelEligibilityService?: ModelEligibilityService;
   dashboardService?: DashboardService;
   companionService?: CompanionService;
   workspacesService?: WorkspacesService;
@@ -209,6 +219,14 @@ export function buildApp(options: BuildAppOptions = {}) {
     createModelPolicyService({
       repository: createInMemoryModelPolicyRepository(),
       registryReader: createInMemoryModelPolicyRegistryReader(),
+      logger: app.log,
+    });
+  const modelEligibilityService =
+    options.modelEligibilityService ??
+    createModelEligibilityService({
+      sourceReader: createInMemoryEligibilitySourceReader(),
+      runtimeHealthReader: createStaticRuntimeHealthReader(),
+      providerHealthReader: createStaticProviderHealthReader(),
       logger: app.log,
     });
   const chatService =
@@ -518,6 +536,17 @@ export function buildApp(options: BuildAppOptions = {}) {
     );
 
     await scopedApp.register(
+      async (eligibilityApp) => {
+        await registerModelEligibilityRoutes(eligibilityApp, {
+          modelEligibilityService,
+        });
+      },
+      {
+        prefix: "/api/v1/eligibility",
+      },
+    );
+
+    await scopedApp.register(
       async (marketplaceApp) => {
         await registerMarketplaceRoutes(marketplaceApp, {
           marketplaceService,
@@ -595,6 +624,11 @@ export function buildProductionApp() {
     repository: createDatabaseModelPolicyRepository(),
     registryReader: createDatabaseModelPolicyRegistryReader(),
   });
+  const modelEligibilityService = createModelEligibilityService({
+    sourceReader: createDatabaseEligibilitySourceReader(),
+    runtimeHealthReader: createStaticRuntimeHealthReader(),
+    providerHealthReader: createStaticProviderHealthReader(),
+  });
   const retentionCleanup = createRetentionCleanupService({
     policy: {
       modelUsageDays: getEnvInt("MODEL_USAGE_RETENTION_DAYS", 30),
@@ -636,6 +670,7 @@ export function buildProductionApp() {
     modelCatalogService,
     modelRegistryApprovalService,
     modelPolicyService,
+    modelEligibilityService,
     marketplaceService,
     dashboardService,
     companionService,
