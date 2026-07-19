@@ -88,6 +88,7 @@ import { registerMarketplaceSyncJob } from "./modules/marketplace/sync-job.js";
 import { registerAdminRoutes } from "./modules/admin/routes.js";
 import { registerProviderAdminRoutes } from "./modules/providers/admin-routes.js";
 import { registerModelCatalogAdminRoutes } from "./modules/model-catalog/admin-routes.js";
+import { registerModelRegistryAdminRoutes } from "./modules/model-registry/admin-routes.js";
 import {
   createProviderManagementService,
 } from "./modules/providers/management-service.js";
@@ -107,6 +108,14 @@ import {
   createInMemoryModelCatalogRepository,
 } from "./modules/model-catalog/repository.js";
 import type { ModelCatalogService } from "./modules/model-catalog/interfaces.js";
+import { createModelRegistryApprovalService } from "./modules/model-registry/service.js";
+import {
+  createDatabaseModelRegistryCatalogReader,
+  createDatabaseModelRegistryRepository,
+  createInMemoryModelRegistryCatalogReader,
+  createInMemoryModelRegistryRepository,
+} from "./modules/model-registry/repository.js";
+import type { ModelRegistryApprovalService } from "./modules/model-registry/interfaces.js";
 import { checkDatabaseConnection } from "./db/connection.js";
 import { checkRedisConnection } from "./redis/client.js";
 import {
@@ -126,6 +135,7 @@ interface BuildAppOptions {
   modelRegistryService?: ModelRegistryService;
   providerManagementService?: ProviderManagementService;
   modelCatalogService?: ModelCatalogService;
+  modelRegistryApprovalService?: ModelRegistryApprovalService;
   dashboardService?: DashboardService;
   companionService?: CompanionService;
   workspacesService?: WorkspacesService;
@@ -175,6 +185,13 @@ export function buildApp(options: BuildAppOptions = {}) {
     createModelCatalogService({
       repository: createInMemoryModelCatalogRepository(),
       providerRepository: createInMemoryModelCatalogProviderRepository(),
+      logger: app.log,
+    });
+  const modelRegistryApprovalService =
+    options.modelRegistryApprovalService ??
+    createModelRegistryApprovalService({
+      repository: createInMemoryModelRegistryRepository(),
+      catalogReader: createInMemoryModelRegistryCatalogReader(),
       logger: app.log,
     });
   const chatService =
@@ -505,6 +522,9 @@ export function buildApp(options: BuildAppOptions = {}) {
         await registerModelCatalogAdminRoutes(adminApp, {
           modelCatalogService,
         });
+        await registerModelRegistryAdminRoutes(adminApp, {
+          modelRegistryApprovalService,
+        });
       },
       {
         prefix: "/api/v1/admin",
@@ -547,6 +567,10 @@ export function buildProductionApp() {
     repository: createDatabaseModelCatalogRepository(),
     providerRepository: createDatabaseModelCatalogProviderRepository(),
   });
+  const modelRegistryApprovalService = createModelRegistryApprovalService({
+    repository: createDatabaseModelRegistryRepository(),
+    catalogReader: createDatabaseModelRegistryCatalogReader(),
+  });
   const retentionCleanup = createRetentionCleanupService({
     policy: {
       modelUsageDays: getEnvInt("MODEL_USAGE_RETENTION_DAYS", 30),
@@ -586,6 +610,7 @@ export function buildProductionApp() {
     modelRegistryService,
     providerManagementService,
     modelCatalogService,
+    modelRegistryApprovalService,
     marketplaceService,
     dashboardService,
     companionService,

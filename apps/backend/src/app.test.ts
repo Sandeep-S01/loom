@@ -6,6 +6,7 @@ import { createCompanionService } from "./modules/companion/service.js";
 import { createInMemoryWorkspacesRepository } from "./modules/workspaces/repository.js";
 import { createWorkspacesService } from "./modules/workspaces/service.js";
 import { createInMemoryModelRegistryService } from "./modules/models/service.js";
+import type { ModelRegistryApprovalService } from "./modules/model-registry/interfaces.js";
 import type { SessionService } from "./modules/session/service.js";
 import { SESSION_COOKIE_NAME } from "./plugins/session.js";
 
@@ -740,7 +741,7 @@ describe("admin route protection", () => {
     expect(listCatalog).toHaveBeenCalledWith(
       expect.objectContaining({
         capability: "toolUse",
-        costTier: "free",
+        costTier: "free" as const,
         pageSize: 100,
       }),
     );
@@ -754,6 +755,149 @@ describe("admin route protection", () => {
     const response = await customerApp.inject({
       method: "GET",
       url: "/api/v1/admin/model-catalog",
+      cookies: {
+        [SESSION_COOKIE_NAME]: "session_customer",
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.message).toBe("Admin access required.");
+
+    await customerApp.close();
+  });
+
+  it("returns model registry results to admins with parsed query filters", async () => {
+    const listRegistry = vi.fn(async (filters) => ({
+      items: [],
+      page: filters.page,
+      pageSize: filters.pageSize,
+      total: 0,
+      hasNextPage: false,
+    }));
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+      modelRegistryApprovalService: {
+        listRegistry,
+        getRegistryModel: vi.fn(),
+        registerCatalogModel: vi.fn(),
+        archiveRegistryModel: vi.fn(),
+      },
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/model-registry?pageSize=1000&providerId=prv_openrouter&includeArchived=true",
+      cookies: { [SESSION_COOKIE_NAME]: "session_admin" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      items: [],
+      page: 1,
+      pageSize: 100,
+      total: 0,
+      hasNextPage: false,
+    });
+    expect(listRegistry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerId: "prv_openrouter",
+        includeArchived: true,
+        pageSize: 100,
+      }),
+    );
+  });
+
+  it("approves catalog models into the model registry for admins", async () => {
+    const registerCatalogModel: ModelRegistryApprovalService["registerCatalogModel"] =
+      vi.fn(async (input) => ({
+        id: "mreg_deepseek",
+        catalogModelId: input.catalogModelId,
+        status: "registered" as const,
+        approvedByUserId: input.actorUserId,
+        approvedAt: "2026-07-19T00:00:00.000Z",
+        archivedByUserId: null,
+        archivedAt: null,
+        archiveReason: null,
+        notes: input.notes,
+        catalog: {
+          id: input.catalogModelId,
+          providerId: "prv_openrouter",
+          externalModelKey: "deepseek/deepseek-chat",
+          displayName: "DeepSeek Chat",
+          description: null,
+          capabilities: {
+            chat: true,
+            agent: false,
+            vision: false,
+            toolUse: true,
+            jsonMode: true,
+          },
+          contextWindow: 65_536,
+          maxOutputTokens: 8_192,
+          costTier: "free" as const,
+          pricing: {
+            inputPer1mUsdMicros: 0,
+            outputPer1mUsdMicros: 0,
+            currency: "USD" as const,
+            raw: null,
+          },
+          releaseStage: "stable" as const,
+          releasedAt: null,
+          deprecatedAt: null,
+          deprecationReason: null,
+          providerMetadata: {},
+          firstDiscoveredAt: "2026-07-19T00:00:00.000Z",
+          lastDiscoveredAt: "2026-07-19T00:00:00.000Z",
+          lastChangedAt: null,
+          createdAt: "2026-07-19T00:00:00.000Z",
+          updatedAt: "2026-07-19T00:00:00.000Z",
+        },
+        createdAt: "2026-07-19T00:00:00.000Z",
+        updatedAt: "2026-07-19T00:00:00.000Z",
+      }));
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+      modelRegistryApprovalService: {
+        listRegistry: vi.fn(),
+        getRegistryModel: vi.fn(),
+        registerCatalogModel,
+        archiveRegistryModel: vi.fn(),
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/model-registry",
+      cookies: { [SESSION_COOKIE_NAME]: "session_admin" },
+      payload: {
+        catalogModelId: "mcat_deepseek",
+        notes: "Approved for launch",
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toEqual(
+      expect.objectContaining({
+        id: "mreg_deepseek",
+        catalogModelId: "mcat_deepseek",
+        status: "registered",
+      }),
+    );
+    expect(registerCatalogModel).toHaveBeenCalledWith({
+      catalogModelId: "mcat_deepseek",
+      notes: "Approved for launch",
+      actorUserId: "usr_seeded",
+    });
+  });
+
+  it("blocks customer access to the model registry admin API", async () => {
+    const customerApp = buildApp({
+      sessionService: createCustomerTestSessionService(),
+    });
+
+    const response = await customerApp.inject({
+      method: "GET",
+      url: "/api/v1/admin/model-registry",
       cookies: {
         [SESSION_COOKIE_NAME]: "session_customer",
       },

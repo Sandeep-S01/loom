@@ -216,6 +216,35 @@ export const modelCatalog = pgTable(
   ],
 );
 
+export const modelRegistry = pgTable(
+  "model_registry",
+  {
+    id: varchar("id", { length: 50 }).primaryKey(),
+    catalogModelId: varchar("catalog_model_id", { length: 50 })
+      .notNull()
+      .references(() => modelCatalog.id),
+    status: varchar("status", { length: 20 }).notNull().default("registered"),
+    approvedByUserId: varchar("approved_by_user_id", { length: 50 })
+      .notNull()
+      .references(() => users.id),
+    approvedAt: timestamp("approved_at", { withTimezone: true }).notNull(),
+    archivedByUserId: varchar("archived_by_user_id", { length: 50 }).references(
+      () => users.id,
+    ),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    archiveReason: text("archive_reason"),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("idx_model_registry_catalog").on(table.catalogModelId),
+    index("idx_model_registry_status").on(table.status),
+    index("idx_model_registry_approved_at").on(table.approvedAt),
+    index("idx_model_registry_archived_at").on(table.archivedAt),
+  ],
+);
+
 export const conversations = pgTable(
   "conversations",
   {
