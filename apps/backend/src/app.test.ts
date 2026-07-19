@@ -9,6 +9,7 @@ import { createInMemoryModelRegistryService } from "./modules/models/service.js"
 import type { ModelRegistryApprovalService } from "./modules/model-registry/interfaces.js";
 import type { ModelPolicyService } from "./modules/model-policy/interfaces.js";
 import type { ModelEligibilityService } from "./modules/model-eligibility/interfaces.js";
+import type { ModelFallbackService } from "./modules/model-fallback/interfaces.js";
 import type { ModelRoutingService } from "./modules/model-routing/interfaces.js";
 import type { ModelRuntimeHealthService } from "./modules/model-runtime-health/interfaces.js";
 import type { ProviderHealthService } from "./modules/provider-health/interfaces.js";
@@ -1806,6 +1807,219 @@ describe("model routing routes", () => {
     const response = await customerApp.inject({
       method: "GET",
       url: "/api/v1/admin/routing-attempts",
+      cookies: {
+        [SESSION_COOKIE_NAME]: "session_customer",
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.message).toBe("Admin access required.");
+
+    await customerApp.close();
+  });
+});
+
+describe("model fallback routes", () => {
+  it("selects a fallback for admins", async () => {
+    const selectFallback: ModelFallbackService["selectFallback"] = vi.fn(
+      async (input) => ({
+        decision: {
+          id: "fdec_1",
+          requestId: input.requestId ?? "fallback_generated",
+          userId: input.userId,
+          conversationId: input.conversationId ?? null,
+          agentRunId: input.agentRunId ?? null,
+          mode: input.mode,
+          failedRoutingAttemptId: input.failedRoutingAttemptId ?? null,
+          failedRegistryModelIds: input.failedRegistryModelIds,
+          selectedRegistryModelId: "mreg_next",
+          status: "fallback_selected" as const,
+          failureCode: input.failureCode,
+          failureMessage: input.failureMessage ?? null,
+          eligibleCount: 2,
+          skippedFailedCount: 1,
+          reasonCode: null,
+          reasonMessage: null,
+          metadata: {},
+          createdAt: new Date("2026-07-19T00:00:00.000Z").toISOString(),
+        },
+        model: {
+          registryModelId: "mreg_next",
+          catalogModelId: "mcat_next",
+          providerId: "prv_openrouter",
+          providerName: "OpenRouter",
+          externalModelKey: "next/free",
+          displayName: "Next Free",
+          capabilities: {
+            chat: true,
+            agent: false,
+            vision: false,
+            toolUse: true,
+            jsonMode: true,
+          },
+          contextWindow: 65_536,
+          maxOutputTokens: 8_192,
+          priorityRank: 20,
+          providerPriorityRank: 10,
+          defaultForChat: false,
+          defaultForAgent: false,
+          requiresCompanion: false,
+          requestsPerMinuteLimit: 60,
+          tokensPerDayLimit: 100_000,
+          tokensPerRequestLimit: 8_000,
+          runtimeStatus: "healthy" as const,
+          providerHealthStatus: "healthy" as const,
+          reasons: [
+            {
+              code: "eligible" as const,
+              message: "Model is eligible for this request.",
+            },
+          ],
+        },
+        exhausted: false as const,
+      }),
+    );
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+      modelFallbackService: {
+        selectFallback,
+        listDecisions: vi.fn(),
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/fallback/select",
+      cookies: { [SESSION_COOKIE_NAME]: "session_admin" },
+      payload: {
+        mode: "chat",
+        conversationId: "conv_1",
+        failedRoutingAttemptId: "ratt_1",
+        failedRegistryModelIds: ["mreg_failed"],
+        failureCode: "provider_5xx",
+        companionAvailable: false,
+        estimatedInputTokens: 100,
+        requestedOutputTokens: 200,
+        requestId: "fallback_api_test",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().model.registryModelId).toBe("mreg_next");
+    expect(selectFallback).toHaveBeenCalledWith({
+      mode: "chat",
+      userId: "usr_seeded",
+      conversationId: "conv_1",
+      agentRunId: null,
+      requestId: "fallback_api_test",
+      failedRoutingAttemptId: "ratt_1",
+      failedRegistryModelIds: ["mreg_failed"],
+      failureCode: "provider_5xx",
+      failureMessage: null,
+      companionAvailable: false,
+      estimatedInputTokens: 100,
+      requestedOutputTokens: 200,
+    });
+  });
+
+  it("rejects invalid fallback payloads before service execution", async () => {
+    const selectFallback = vi.fn();
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+      modelFallbackService: {
+        selectFallback,
+        listDecisions: vi.fn(),
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/fallback/select",
+      cookies: { [SESSION_COOKIE_NAME]: "session_admin" },
+      payload: {
+        mode: "chat",
+        failedRegistryModelIds: [],
+        failureCode: "timeout",
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(selectFallback).not.toHaveBeenCalled();
+  });
+
+  it("returns fallback decisions to admins", async () => {
+    const listDecisions: ModelFallbackService["listDecisions"] = vi.fn(
+      async (filters) => ({
+        items: [
+          {
+            id: "fdec_1",
+            requestId: "fallback_1",
+            userId: filters.userId ?? "usr_seeded",
+            conversationId: null,
+            agentRunId: null,
+            mode: "chat" as const,
+            failedRoutingAttemptId: "ratt_1",
+            failedRegistryModelIds: ["mreg_failed"],
+            selectedRegistryModelId: "mreg_next",
+            status: "fallback_selected" as const,
+            failureCode: "timeout",
+            failureMessage: null,
+            eligibleCount: 2,
+            skippedFailedCount: 1,
+            reasonCode: null,
+            reasonMessage: null,
+            metadata: {},
+            createdAt: new Date("2026-07-19T00:00:00.000Z").toISOString(),
+          },
+        ],
+        page: filters.page,
+        pageSize: filters.pageSize,
+        total: 1,
+        hasNextPage: false,
+      }),
+    );
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+      modelFallbackService: {
+        selectFallback: vi.fn(),
+        listDecisions,
+      },
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/fallback-decisions?userId=usr_seeded&pageSize=100",
+      cookies: { [SESSION_COOKIE_NAME]: "session_admin" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().items[0].requestId).toBe("fallback_1");
+    expect(listDecisions).toHaveBeenCalledWith({
+      userId: "usr_seeded",
+      conversationId: undefined,
+      agentRunId: undefined,
+      selectedRegistryModelId: undefined,
+      status: undefined,
+      mode: undefined,
+      page: 1,
+      pageSize: 100,
+      sort: "createdAt",
+      direction: "desc",
+    });
+  });
+
+  it("blocks customer access to fallback diagnostics", async () => {
+    const customerApp = buildApp({
+      sessionService: createCustomerTestSessionService(),
+      modelFallbackService: {
+        selectFallback: vi.fn(),
+        listDecisions: vi.fn(),
+      },
+    });
+
+    const response = await customerApp.inject({
+      method: "GET",
+      url: "/api/v1/admin/fallback-decisions",
       cookies: {
         [SESSION_COOKIE_NAME]: "session_customer",
       },

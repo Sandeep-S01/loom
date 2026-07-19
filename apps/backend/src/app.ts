@@ -91,6 +91,7 @@ import { registerModelCatalogAdminRoutes } from "./modules/model-catalog/admin-r
 import { registerModelRegistryAdminRoutes } from "./modules/model-registry/admin-routes.js";
 import { registerModelPolicyAdminRoutes } from "./modules/model-policy/admin-routes.js";
 import { registerModelEligibilityRoutes } from "./modules/model-eligibility/routes.js";
+import { registerModelFallbackAdminRoutes } from "./modules/model-fallback/routes.js";
 import { registerModelRoutingAdminRoutes } from "./modules/model-routing/routes.js";
 import { registerModelRuntimeHealthAdminRoutes } from "./modules/model-runtime-health/admin-routes.js";
 import { registerProviderHealthAdminRoutes } from "./modules/provider-health/admin-routes.js";
@@ -136,6 +137,9 @@ import {
   createInMemoryEligibilitySourceReader,
 } from "./modules/model-eligibility/repository.js";
 import type { ModelEligibilityService } from "./modules/model-eligibility/interfaces.js";
+import { createModelFallbackService } from "./modules/model-fallback/service.js";
+import { createInMemoryFallbackDecisionRepository } from "./modules/model-fallback/repository.js";
+import type { ModelFallbackService } from "./modules/model-fallback/interfaces.js";
 import { createModelRoutingService } from "./modules/model-routing/service.js";
 import {
   createDatabaseRoutingAttemptRepository,
@@ -195,6 +199,7 @@ interface BuildAppOptions {
   modelRegistryApprovalService?: ModelRegistryApprovalService;
   modelPolicyService?: ModelPolicyService;
   modelEligibilityService?: ModelEligibilityService;
+  modelFallbackService?: ModelFallbackService;
   modelRoutingService?: ModelRoutingService;
   modelRuntimeHealthService?: ModelRuntimeHealthService;
   providerHealthService?: ProviderHealthService;
@@ -291,6 +296,13 @@ export function buildApp(options: BuildAppOptions = {}) {
     createModelRoutingService({
       eligibilityService: modelEligibilityService,
       attemptRepository: createInMemoryRoutingAttemptRepository(),
+      logger: app.log,
+    });
+  const modelFallbackService =
+    options.modelFallbackService ??
+    createModelFallbackService({
+      eligibilityService: modelEligibilityService,
+      decisionRepository: createInMemoryFallbackDecisionRepository(),
       logger: app.log,
     });
   const modelDiscoveryService =
@@ -667,6 +679,9 @@ export function buildApp(options: BuildAppOptions = {}) {
         await registerModelRoutingAdminRoutes(adminApp, {
           modelRoutingService,
         });
+        await registerModelFallbackAdminRoutes(adminApp, {
+          modelFallbackService,
+        });
       },
       {
         prefix: "/api/v1/admin",
@@ -734,6 +749,10 @@ export function buildProductionApp() {
     eligibilityService: modelEligibilityService,
     attemptRepository: createDatabaseRoutingAttemptRepository(),
   });
+  const modelFallbackService = createModelFallbackService({
+    eligibilityService: modelEligibilityService,
+    decisionRepository: createInMemoryFallbackDecisionRepository(),
+  });
   const modelDiscoveryService = createModelDiscoveryService({
     providerReader: createDatabaseDiscoveryProviderReader(),
     jobRepository: createDatabaseDiscoveryJobRepository(),
@@ -785,6 +804,7 @@ export function buildProductionApp() {
     modelRegistryApprovalService,
     modelPolicyService,
     modelEligibilityService,
+    modelFallbackService,
     modelRoutingService,
     modelRuntimeHealthService,
     providerHealthService,
