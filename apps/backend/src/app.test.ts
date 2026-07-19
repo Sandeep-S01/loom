@@ -11,6 +11,7 @@ import type { ModelPolicyService } from "./modules/model-policy/interfaces.js";
 import type { ModelEligibilityService } from "./modules/model-eligibility/interfaces.js";
 import type { ModelRuntimeHealthService } from "./modules/model-runtime-health/interfaces.js";
 import type { ProviderHealthService } from "./modules/provider-health/interfaces.js";
+import type { ModelDiscoveryService } from "./modules/model-discovery/interfaces.js";
 import type { SessionService } from "./modules/session/service.js";
 import { SESSION_COOKIE_NAME } from "./plugins/session.js";
 
@@ -1338,6 +1339,153 @@ describe("admin route protection", () => {
     const response = await customerApp.inject({
       method: "GET",
       url: "/api/v1/admin/provider-health",
+      cookies: {
+        [SESSION_COOKIE_NAME]: "session_customer",
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.message).toBe("Admin access required.");
+
+    await customerApp.close();
+  });
+
+  it("runs model discovery for admins", async () => {
+    const runProviderDiscovery: ModelDiscoveryService["runProviderDiscovery"] =
+      vi.fn(async (input) => ({
+        id: "djob_openrouter",
+        providerId: input.providerId,
+        status: "succeeded" as const,
+        triggerType: input.triggerType,
+        startedAt: "2026-07-19T00:00:00.000Z",
+        completedAt: "2026-07-19T00:00:01.000Z",
+        discoveredCount: 2,
+        upsertedCount: 2,
+        skippedCount: 0,
+        failureCode: null,
+        failureMessage: null,
+        createdByUserId: input.actorUserId,
+        metadata: {},
+        createdAt: "2026-07-19T00:00:00.000Z",
+        updatedAt: "2026-07-19T00:00:01.000Z",
+      }));
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+      modelDiscoveryService: {
+        listJobs: vi.fn(),
+        getJob: vi.fn(),
+        listProviderSyncStatus: vi.fn(),
+        getProviderSyncStatus: vi.fn(),
+        runProviderDiscovery,
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/discovery/jobs",
+      cookies: { [SESSION_COOKIE_NAME]: "session_admin" },
+      payload: {
+        providerId: "prv_openrouter",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(
+      expect.objectContaining({
+        providerId: "prv_openrouter",
+        status: "succeeded",
+        upsertedCount: 2,
+      }),
+    );
+    expect(runProviderDiscovery).toHaveBeenCalledWith({
+      providerId: "prv_openrouter",
+      triggerType: "manual",
+      actorUserId: "usr_seeded",
+    });
+  });
+
+  it("returns discovery jobs and provider sync status to admins with parsed filters", async () => {
+    const listJobs = vi.fn(async (filters) => ({
+      items: [],
+      page: filters.page,
+      pageSize: filters.pageSize,
+      total: 0,
+      hasNextPage: false,
+    }));
+    const listProviderSyncStatus = vi.fn(async (filters) => ({
+      items: [],
+      page: filters.page,
+      pageSize: filters.pageSize,
+      total: 0,
+      hasNextPage: false,
+    }));
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+      modelDiscoveryService: {
+        listJobs,
+        getJob: vi.fn(),
+        listProviderSyncStatus,
+        getProviderSyncStatus: vi.fn(),
+        runProviderDiscovery: vi.fn(),
+      },
+    });
+
+    const jobsResponse = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/discovery/jobs?pageSize=1000&status=succeeded",
+      cookies: { [SESSION_COOKIE_NAME]: "session_admin" },
+    });
+    const syncResponse = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/provider-sync-status?status=failed",
+      cookies: { [SESSION_COOKIE_NAME]: "session_admin" },
+    });
+
+    expect(jobsResponse.statusCode).toBe(200);
+    expect(jobsResponse.json().pageSize).toBe(100);
+    expect(listJobs).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "succeeded", pageSize: 100 }),
+    );
+    expect(syncResponse.statusCode).toBe(200);
+    expect(listProviderSyncStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" }),
+    );
+  });
+
+  it("rejects invalid discovery requests before service execution", async () => {
+    const runProviderDiscovery = vi.fn();
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+      modelDiscoveryService: {
+        listJobs: vi.fn(),
+        getJob: vi.fn(),
+        listProviderSyncStatus: vi.fn(),
+        getProviderSyncStatus: vi.fn(),
+        runProviderDiscovery,
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/discovery/jobs",
+      cookies: { [SESSION_COOKIE_NAME]: "session_admin" },
+      payload: {
+        triggerType: "manual",
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(runProviderDiscovery).not.toHaveBeenCalled();
+  });
+
+  it("blocks customer access to the model discovery admin API", async () => {
+    const customerApp = buildApp({
+      sessionService: createCustomerTestSessionService(),
+    });
+
+    const response = await customerApp.inject({
+      method: "GET",
+      url: "/api/v1/admin/discovery/jobs",
       cookies: {
         [SESSION_COOKIE_NAME]: "session_customer",
       },

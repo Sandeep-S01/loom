@@ -340,6 +340,62 @@ export const providerHealthState = pgTable(
   ],
 );
 
+export const discoveryJobs = pgTable(
+  "discovery_jobs",
+  {
+    id: varchar("id", { length: 50 }).primaryKey(),
+    providerId: varchar("provider_id", { length: 50 })
+      .notNull()
+      .references(() => providers.id),
+    status: varchar("status", { length: 20 }).notNull().default("running"),
+    triggerType: varchar("trigger_type", { length: 20 }).notNull().default("manual"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    discoveredCount: integer("discovered_count").notNull().default(0),
+    upsertedCount: integer("upserted_count").notNull().default(0),
+    skippedCount: integer("skipped_count").notNull().default(0),
+    failureCode: varchar("failure_code", { length: 80 }),
+    failureMessage: text("failure_message"),
+    createdByUserId: varchar("created_by_user_id", { length: 50 }).references(
+      () => users.id,
+    ),
+    metadataJson: jsonb("metadata_json").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("idx_discovery_jobs_provider_started").on(table.providerId, table.startedAt),
+    index("idx_discovery_jobs_status_started").on(table.status, table.startedAt),
+    index("idx_discovery_jobs_created_by").on(table.createdByUserId),
+  ],
+);
+
+export const providerSyncStatus = pgTable(
+  "provider_sync_status",
+  {
+    id: varchar("id", { length: 50 }).primaryKey(),
+    providerId: varchar("provider_id", { length: 50 })
+      .notNull()
+      .references(() => providers.id),
+    lastJobId: varchar("last_job_id", { length: 50 }).references(() => discoveryJobs.id),
+    status: varchar("status", { length: 20 }).notNull().default("never_synced"),
+    lastStartedAt: timestamp("last_started_at", { withTimezone: true }),
+    lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
+    lastFailureAt: timestamp("last_failure_at", { withTimezone: true }),
+    lastFailureCode: varchar("last_failure_code", { length: 80 }),
+    lastFailureMessage: text("last_failure_message"),
+    lastDiscoveredCount: integer("last_discovered_count").notNull().default(0),
+    lastUpsertedCount: integer("last_upserted_count").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("uq_provider_sync_status_provider").on(table.providerId),
+    index("idx_provider_sync_status_status").on(table.status),
+    index("idx_provider_sync_status_last_started").on(table.lastStartedAt),
+    index("idx_provider_sync_status_last_success").on(table.lastSuccessAt),
+  ],
+);
+
 export const conversations = pgTable(
   "conversations",
   {

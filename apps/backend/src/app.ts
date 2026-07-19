@@ -93,6 +93,7 @@ import { registerModelPolicyAdminRoutes } from "./modules/model-policy/admin-rou
 import { registerModelEligibilityRoutes } from "./modules/model-eligibility/routes.js";
 import { registerModelRuntimeHealthAdminRoutes } from "./modules/model-runtime-health/admin-routes.js";
 import { registerProviderHealthAdminRoutes } from "./modules/provider-health/admin-routes.js";
+import { registerModelDiscoveryAdminRoutes } from "./modules/model-discovery/admin-routes.js";
 import {
   createProviderManagementService,
 } from "./modules/providers/management-service.js";
@@ -150,6 +151,20 @@ import {
   createInMemoryProviderHealthRepository,
 } from "./modules/provider-health/repository.js";
 import type { ProviderHealthService } from "./modules/provider-health/interfaces.js";
+import {
+  createDiscoveryAdapterRegistry,
+  createOpenRouterDiscoveryAdapter,
+} from "./modules/model-discovery/adapters.js";
+import { createModelDiscoveryService } from "./modules/model-discovery/service.js";
+import {
+  createDatabaseDiscoveryJobRepository,
+  createDatabaseDiscoveryProviderReader,
+  createDatabaseProviderSyncStatusRepository,
+  createInMemoryDiscoveryJobRepository,
+  createInMemoryDiscoveryProviderReader,
+  createInMemoryProviderSyncStatusRepository,
+} from "./modules/model-discovery/repository.js";
+import type { ModelDiscoveryService } from "./modules/model-discovery/interfaces.js";
 import { checkDatabaseConnection } from "./db/connection.js";
 import { checkRedisConnection } from "./redis/client.js";
 import {
@@ -174,6 +189,7 @@ interface BuildAppOptions {
   modelEligibilityService?: ModelEligibilityService;
   modelRuntimeHealthService?: ModelRuntimeHealthService;
   providerHealthService?: ProviderHealthService;
+  modelDiscoveryService?: ModelDiscoveryService;
   dashboardService?: DashboardService;
   companionService?: CompanionService;
   workspacesService?: WorkspacesService;
@@ -259,6 +275,18 @@ export function buildApp(options: BuildAppOptions = {}) {
       sourceReader: createInMemoryEligibilitySourceReader(),
       runtimeHealthReader: modelRuntimeHealthService,
       providerHealthReader: providerHealthService,
+      logger: app.log,
+    });
+  const modelDiscoveryService =
+    options.modelDiscoveryService ??
+    createModelDiscoveryService({
+      providerReader: createInMemoryDiscoveryProviderReader(),
+      jobRepository: createInMemoryDiscoveryJobRepository(),
+      syncStatusRepository: createInMemoryProviderSyncStatusRepository(),
+      adapterRegistry: createDiscoveryAdapterRegistry([
+        createOpenRouterDiscoveryAdapter(),
+      ]),
+      catalogService: modelCatalogService,
       logger: app.log,
     });
   const chatService =
@@ -612,6 +640,9 @@ export function buildApp(options: BuildAppOptions = {}) {
         await registerProviderHealthAdminRoutes(adminApp, {
           providerHealthService,
         });
+        await registerModelDiscoveryAdminRoutes(adminApp, {
+          modelDiscoveryService,
+        });
       },
       {
         prefix: "/api/v1/admin",
@@ -675,6 +706,15 @@ export function buildProductionApp() {
     runtimeHealthReader: modelRuntimeHealthService,
     providerHealthReader: providerHealthService,
   });
+  const modelDiscoveryService = createModelDiscoveryService({
+    providerReader: createDatabaseDiscoveryProviderReader(),
+    jobRepository: createDatabaseDiscoveryJobRepository(),
+    syncStatusRepository: createDatabaseProviderSyncStatusRepository(),
+    adapterRegistry: createDiscoveryAdapterRegistry([
+      createOpenRouterDiscoveryAdapter(),
+    ]),
+    catalogService: modelCatalogService,
+  });
   const retentionCleanup = createRetentionCleanupService({
     policy: {
       modelUsageDays: getEnvInt("MODEL_USAGE_RETENTION_DAYS", 30),
@@ -719,6 +759,7 @@ export function buildProductionApp() {
     modelEligibilityService,
     modelRuntimeHealthService,
     providerHealthService,
+    modelDiscoveryService,
     marketplaceService,
     dashboardService,
     companionService,

@@ -113,6 +113,13 @@
       "when": 1784517600000,
       "tag": "0015_provider_health_state",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1784604000000,
+      "tag": "0016_model_discovery",
+      "breakpoints": true
     }
   ]
 }
