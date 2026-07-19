@@ -127,6 +127,13 @@
       "when": 1784690400000,
       "tag": "0017_routing_attempts",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1784776800000,
+      "tag": "0018_model_usage_counters",
+      "breakpoints": true
     }
   ]
 }

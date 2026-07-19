@@ -96,6 +96,7 @@ import { registerModelRoutingAdminRoutes } from "./modules/model-routing/routes.
 import { registerModelRuntimeHealthAdminRoutes } from "./modules/model-runtime-health/admin-routes.js";
 import { registerProviderHealthAdminRoutes } from "./modules/provider-health/admin-routes.js";
 import { registerModelDiscoveryAdminRoutes } from "./modules/model-discovery/admin-routes.js";
+import { registerModelUsageAdminRoutes } from "./modules/model-usage/admin-routes.js";
 import {
   createProviderManagementService,
 } from "./modules/providers/management-service.js";
@@ -154,6 +155,12 @@ import {
   createInMemoryModelRuntimeHealthRepository,
 } from "./modules/model-runtime-health/repository.js";
 import type { ModelRuntimeHealthService } from "./modules/model-runtime-health/interfaces.js";
+import { createModelUsageService } from "./modules/model-usage/service.js";
+import {
+  createDatabaseModelUsageRepository,
+  createInMemoryModelUsageRepository,
+} from "./modules/model-usage/repository.js";
+import type { ModelUsageService } from "./modules/model-usage/interfaces.js";
 import { createProviderHealthService } from "./modules/provider-health/service.js";
 import {
   createDatabaseProviderHealthProviderReader,
@@ -202,6 +209,7 @@ interface BuildAppOptions {
   modelFallbackService?: ModelFallbackService;
   modelRoutingService?: ModelRoutingService;
   modelRuntimeHealthService?: ModelRuntimeHealthService;
+  modelUsageService?: ModelUsageService;
   providerHealthService?: ProviderHealthService;
   modelDiscoveryService?: ModelDiscoveryService;
   dashboardService?: DashboardService;
@@ -274,6 +282,12 @@ export function buildApp(options: BuildAppOptions = {}) {
     createModelRuntimeHealthService({
       repository: createInMemoryModelRuntimeHealthRepository(),
       registryReader: createInMemoryModelRuntimeHealthRegistryReader(),
+      logger: app.log,
+    });
+  const modelUsageService =
+    options.modelUsageService ??
+    createModelUsageService({
+      repository: createInMemoryModelUsageRepository(),
       logger: app.log,
     });
   const providerHealthService =
@@ -682,6 +696,9 @@ export function buildApp(options: BuildAppOptions = {}) {
         await registerModelFallbackAdminRoutes(adminApp, {
           modelFallbackService,
         });
+        await registerModelUsageAdminRoutes(adminApp, {
+          modelUsageService,
+        });
       },
       {
         prefix: "/api/v1/admin",
@@ -735,6 +752,9 @@ export function buildProductionApp() {
   const modelRuntimeHealthService = createModelRuntimeHealthService({
     repository: createDatabaseModelRuntimeHealthRepository(),
     registryReader: createDatabaseModelRuntimeHealthRegistryReader(),
+  });
+  const modelUsageService = createModelUsageService({
+    repository: createDatabaseModelUsageRepository(),
   });
   const providerHealthService = createProviderHealthService({
     repository: createDatabaseProviderHealthRepository(),
@@ -807,6 +827,7 @@ export function buildProductionApp() {
     modelFallbackService,
     modelRoutingService,
     modelRuntimeHealthService,
+    modelUsageService,
     providerHealthService,
     modelDiscoveryService,
     marketplaceService,

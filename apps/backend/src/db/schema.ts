@@ -690,6 +690,52 @@ export const routingAttempts = pgTable(
   ],
 );
 
+export const modelUsageCounters = pgTable(
+  "model_usage_counters",
+  {
+    id: varchar("id", { length: 50 }).primaryKey(),
+    registryModelId: varchar("registry_model_id", { length: 50 })
+      .notNull()
+      .references(() => modelRegistry.id),
+    providerId: varchar("provider_id", { length: 50 })
+      .notNull()
+      .references(() => providers.id),
+    bucketStart: timestamp("bucket_start", { withTimezone: true }).notNull(),
+    bucketGranularity: varchar("bucket_granularity", { length: 10 }).notNull(),
+    requestCount: integer("request_count").notNull().default(0),
+    successCount: integer("success_count").notNull().default(0),
+    failureCount: integer("failure_count").notNull().default(0),
+    fallbackCount: integer("fallback_count").notNull().default(0),
+    rateLimitCount: integer("rate_limit_count").notNull().default(0),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    totalTokens: integer("total_tokens").notNull().default(0),
+    latencyMsTotal: integer("latency_ms_total").notNull().default(0),
+    latencySampleCount: integer("latency_sample_count").notNull().default(0),
+    costUsdMicros: integer("cost_usd_micros").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("uq_model_usage_counters_bucket").on(
+      table.registryModelId,
+      table.bucketStart,
+      table.bucketGranularity,
+    ),
+    index("idx_model_usage_counters_provider_bucket").on(
+      table.providerId,
+      table.bucketStart,
+    ),
+    index("idx_model_usage_counters_bucket").on(
+      table.bucketGranularity,
+      table.bucketStart,
+    ),
+    index("idx_model_usage_counters_registry_bucket").on(
+      table.registryModelId,
+      table.bucketStart,
+    ),
+  ],
+);
+
 export const modelUsageEvents = pgTable(
   "model_usage_events",
   {

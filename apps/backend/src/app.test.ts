@@ -12,6 +12,7 @@ import type { ModelEligibilityService } from "./modules/model-eligibility/interf
 import type { ModelFallbackService } from "./modules/model-fallback/interfaces.js";
 import type { ModelRoutingService } from "./modules/model-routing/interfaces.js";
 import type { ModelRuntimeHealthService } from "./modules/model-runtime-health/interfaces.js";
+import type { ModelUsageService } from "./modules/model-usage/interfaces.js";
 import type { ProviderHealthService } from "./modules/provider-health/interfaces.js";
 import type { ModelDiscoveryService } from "./modules/model-discovery/interfaces.js";
 import type { SessionService } from "./modules/session/service.js";
@@ -2023,6 +2024,141 @@ describe("model fallback routes", () => {
       cookies: {
         [SESSION_COOKIE_NAME]: "session_customer",
       },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.message).toBe("Admin access required.");
+
+    await customerApp.close();
+  });
+});
+
+describe("model usage routes", () => {
+  it("records usage for admins", async () => {
+    const recordUsage: ModelUsageService["recordUsage"] = vi.fn(async () => ({
+      counters: [],
+    }));
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+      modelUsageService: {
+        recordUsage,
+        listCounters: vi.fn(),
+        getSummary: vi.fn(),
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/model-usage",
+      cookies: { [SESSION_COOKIE_NAME]: "session_admin" },
+      payload: {
+        registryModelId: "mreg_1",
+        providerId: "prov_1",
+        mode: "chat",
+        status: "success",
+        usedFallback: false,
+        inputTokens: 10,
+        outputTokens: 5,
+        totalTokens: 15,
+        costUsdMicros: 0,
+        occurredAt: "2026-07-19T14:21:30.000Z",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(recordUsage).toHaveBeenCalledWith({
+      registryModelId: "mreg_1",
+      providerId: "prov_1",
+      mode: "chat",
+      status: "success",
+      usedFallback: false,
+      failureCode: null,
+      latencyMs: null,
+      inputTokens: 10,
+      outputTokens: 5,
+      totalTokens: 15,
+      costUsdMicros: 0,
+      occurredAt: new Date("2026-07-19T14:21:30.000Z"),
+    });
+  });
+
+  it("returns usage counters and summary to admins", async () => {
+    const listCounters: ModelUsageService["listCounters"] = vi.fn(async (filters) => ({
+      items: [],
+      page: filters.page,
+      pageSize: filters.pageSize,
+      total: 0,
+      hasNextPage: false,
+    }));
+    const getSummary: ModelUsageService["getSummary"] = vi.fn(async () => ({
+      requestCount: 0,
+      successCount: 0,
+      failureCount: 0,
+      fallbackCount: 0,
+      rateLimitCount: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      latencyMsTotal: 0,
+      latencySampleCount: 0,
+      averageLatencyMs: null,
+      costUsdMicros: 0,
+    }));
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+      modelUsageService: {
+        recordUsage: vi.fn(),
+        listCounters,
+        getSummary,
+      },
+    });
+
+    const counters = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/model-usage/counters?granularity=day&pageSize=100",
+      cookies: { [SESSION_COOKIE_NAME]: "session_admin" },
+    });
+    const summary = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/model-usage/summary?providerId=prov_1",
+      cookies: { [SESSION_COOKIE_NAME]: "session_admin" },
+    });
+
+    expect(counters.statusCode).toBe(200);
+    expect(summary.statusCode).toBe(200);
+    expect(listCounters).toHaveBeenCalledWith({
+      registryModelId: undefined,
+      providerId: undefined,
+      granularity: "day",
+      from: undefined,
+      to: undefined,
+      page: 1,
+      pageSize: 100,
+      sort: "bucketStart",
+      direction: "desc",
+    });
+    expect(getSummary).toHaveBeenCalledWith({
+      registryModelId: undefined,
+      providerId: "prov_1",
+      from: undefined,
+      to: undefined,
+    });
+  });
+
+  it("blocks customer access to usage analytics", async () => {
+    const customerApp = buildApp({
+      sessionService: createCustomerTestSessionService(),
+      modelUsageService: {
+        recordUsage: vi.fn(),
+        listCounters: vi.fn(),
+        getSummary: vi.fn(),
+      },
+    });
+
+    const response = await customerApp.inject({
+      method: "GET",
+      url: "/api/v1/admin/model-usage/summary",
+      cookies: { [SESSION_COOKIE_NAME]: "session_customer" },
     });
 
     expect(response.statusCode).toBe(403);
