@@ -24,6 +24,11 @@ import type {
   ConcurrencyLimiter,
   FixedWindowRateLimiter,
 } from "./load-control.js";
+import type { ModelRoutingService } from "../model-routing/interfaces.js";
+import type { ModelFallbackService } from "../model-fallback/interfaces.js";
+import type { ModelUsageService } from "../model-usage/interfaces.js";
+import type { AuditService } from "../audit/interfaces.js";
+import type { EligibleModelCandidate } from "../model-eligibility/domain.js";
 import {
   assemblePrompt,
   PromptAssemblyError,
@@ -47,6 +52,8 @@ export interface ProviderCandidate {
   providerId: string;
   providerName?: string;
   modelId: string;
+  registryModelId?: string;
+  catalogModelId?: string;
   modelName: string;
   externalModelKey?: string;
   baseType?: string;
@@ -85,6 +92,10 @@ interface CreateChatServiceOptions {
   providerCandidates?: ProviderCandidate[];
   getProviderCandidates?: () => Promise<ProviderCandidate[]>;
   invokeProvider: ProviderInvoker;
+  modelRoutingService?: ModelRoutingService;
+  modelFallbackService?: ModelFallbackService;
+  modelUsageService?: ModelUsageService;
+  auditService?: AuditService;
   cooldownTracker?: CooldownTracker;
   recordProviderAttempt?: (input: {
     conversationId: string;
@@ -145,6 +156,12 @@ interface CreateChatServiceOptions {
     excludedContextCount: number;
     estimatedPromptTokens: number;
     truncatedContext: boolean;
+  }) => void;
+  logIntegrationError?: (input: {
+    event: string;
+    requestId?: string;
+    conversationId?: string;
+    error: unknown;
   }) => void;
 }
 
@@ -246,36 +263,115 @@ export function createChatService(
       const providerCandidates =
         options.providerCandidates ?? (await options.getProviderCandidates?.()) ?? [];
       const requestHasImage = input.content.some((item) => item.type === "image");
-      const rankedProviderCandidates = prioritizeSelectedModel(
-        providerCandidates,
-        input.selectedModelId,
-      );
+      const capability: ModelCapability = input.mode === "agent" ? "agent" : "chat";
+      const routingSelection = await selectInitialChatRoute({
+        options,
+        input,
+        mode: capability,
+        requestId: routingTraceId,
+        estimatedInputTokens: estimateMessageTokens(input.content),
+      });
+      if (routingSelection && !routingSelection.model) {
+        const response = capacityBlockedResponse({
+          code: routingSelection.attempt.reasonCode ?? "NO_ELIGIBLE_MODELS",
+          message:
+            routingSelection.attempt.reasonMessage ??
+            "No eligible models are available for this request.",
+          requestId: routingTraceId,
+          userMessageId: userMessage.id,
+        });
+        await recordBlockedUsage(options, {
+          routeModel: null,
+          mode: capability,
+          failureCode: routingSelection.attempt.reasonCode ?? "no_eligible_models",
+          occurredAt: new Date(),
+          requestId: routingTraceId,
+          conversationId: input.conversationId,
+        });
+        await recordChatAudit(options, {
+          userId: input.userId,
+          eventType: "chat_request_blocked",
+          subjectId: input.conversationId,
+          payload: {
+            routingTraceId,
+            reasonCode: routingSelection.attempt.reasonCode,
+            routingAttemptId: routingSelection.attempt.id,
+          },
+        });
+        await markIdempotencyCompleted(options, input, idempotencyKey, response);
+        return response;
+      }
+
+      const routedCandidate = routingSelection?.model
+        ? findProviderCandidateForRoute(providerCandidates, routingSelection.model)
+        : null;
+      if (routingSelection?.model && !routedCandidate) {
+        const response = capacityBlockedResponse({
+          code: "ROUTED_MODEL_UNAVAILABLE",
+          message: "The selected route is not available to the provider runtime.",
+          requestId: routingTraceId,
+          userMessageId: userMessage.id,
+        });
+        await recordBlockedUsage(options, {
+          routeModel: routingSelection.model,
+          mode: capability,
+          failureCode: "routed_model_unavailable",
+          occurredAt: new Date(),
+          requestId: routingTraceId,
+          conversationId: input.conversationId,
+        });
+        await recordChatAudit(options, {
+          userId: input.userId,
+          eventType: "chat_request_blocked",
+          subjectId: input.conversationId,
+          payload: {
+            routingTraceId,
+            reasonCode: "routed_model_unavailable",
+            registryModelId: routingSelection.model.registryModelId,
+            routingAttemptId: routingSelection.attempt.id,
+          },
+        });
+        await markIdempotencyCompleted(options, input, idempotencyKey, response);
+        return response;
+      }
+
+      const rankedProviderCandidates = routedCandidate
+        ? prioritizeRoutedCandidate(
+            providerCandidates,
+            routedCandidate,
+            routingSelection?.model ?? null,
+          )
+        : prioritizeSelectedModel(providerCandidates, input.selectedModelId);
       const hasVisionCandidate = rankedProviderCandidates.some(
         (candidate) => candidate.supportsVision === true,
       );
 
-      const capability: ModelCapability = input.mode === "agent" ? "agent" : "chat";
       const requestDeadlineAt =
         Date.now() + (options.requestDeadlineMs ?? 90_000);
       const maxAttempts = rankedProviderCandidates.length;
       const failedModelIds = new Set<string>();
+      const failedRegistryModelIds = new Set<string>();
       let lastFailedCandidate: ProviderCandidate | null = null;
       let lastFailureCode: ProviderFailureCode | null = null;
       let lastError: NormalizedProviderError | null = null;
+      let forcedNextCandidate: ProviderCandidate | null = null;
       let attemptNo = 0;
 
       while (attemptNo < maxAttempts) {
         const cooldownMap = options.cooldownTracker?.getCooldownMap();
 
-        const candidate = selectNextModel(
-          rankedProviderCandidates.map((item) => ({
-            ...item,
-            providerPriority: item.providerPriority ?? 1,
-            modelPriority: item.modelPriority ?? 1,
-          })),
-          failedModelIds,
-          { capability, cooldownMap, requiresVision: requestHasImage },
-        );
+        const candidate =
+          forcedNextCandidate ??
+          selectNextModel(
+            rankedProviderCandidates.map((item) => ({
+              ...item,
+              providerPriority: item.providerPriority ?? 1,
+              modelPriority: item.modelPriority ?? 1,
+            })),
+            failedModelIds,
+            { capability, cooldownMap, requiresVision: requestHasImage },
+          );
+        forcedNextCandidate = null;
 
         if (!candidate) {
           break;
@@ -315,6 +411,18 @@ export function createChatService(
               providerName: candidate.providerName,
             });
             lastFailureCode = "context_too_large";
+            await recordUsageForCandidate(options, {
+              candidate,
+              mode: capability,
+              status: "blocked",
+              usedFallback: attemptNo > 0,
+              failureCode: "context_too_large",
+              latencyMs: null,
+              usage: null,
+              occurredAt: new Date(),
+              requestId: routingTraceId,
+              conversationId: input.conversationId,
+            });
             break;
           }
           throw error;
@@ -353,7 +461,20 @@ export function createChatService(
               startedAt: now,
               endedAt: now,
             });
+            await recordUsageForCandidate(options, {
+              candidate,
+              mode: capability,
+              status: "failed",
+              usedFallback: attemptNo > 1,
+              failureCode: "provider_rate_limited",
+              latencyMs: 0,
+              usage: null,
+              occurredAt: now,
+              requestId: routingTraceId,
+              conversationId: input.conversationId,
+            });
             failedModelIds.add(candidate.modelId);
+            addFailedRegistryModelId(failedRegistryModelIds, candidate);
             lastFailedCandidate = candidate;
             lastFailureCode = "provider_rate_limited";
             lastError = normalizeProviderFailure({
@@ -362,6 +483,25 @@ export function createChatService(
               providerName: candidate.providerName,
               retryAfterMs: modelRateResult.retryAfterMs,
             });
+            forcedNextCandidate = await selectFallbackCandidate({
+              options,
+              rankedProviderCandidates,
+              failedRegistryModelIds,
+              mode: capability,
+              input,
+              requestId: routingTraceId,
+              attemptNo,
+              routingAttemptId: routingSelection?.attempt.id ?? null,
+              failureCode: "provider_rate_limited",
+              failureMessage: lastError.message,
+            });
+            if (
+              options.modelFallbackService &&
+              failedRegistryModelIds.size > 0 &&
+              !forcedNextCandidate
+            ) {
+              break;
+            }
             continue;
           }
         }
@@ -416,6 +556,18 @@ export function createChatService(
             modelId: candidate.modelId,
             usage: result.usage,
           });
+          await recordUsageForCandidate(options, {
+            candidate,
+            mode: capability,
+            status: "success",
+            usedFallback: attemptNo > 1,
+            failureCode: null,
+            latencyMs,
+            usage: result.usage ?? null,
+            occurredAt: endedAt,
+            requestId: routingTraceId,
+            conversationId: input.conversationId,
+          });
 
           const assistantMessage = await options.conversationRepository.appendMessage({
             conversationId: input.conversationId,
@@ -451,6 +603,21 @@ export function createChatService(
             capacityBlocked: false,
             context: toResponseContextMetadata(assembledPrompt.metadata, routingTraceId),
           };
+          await recordChatAudit(options, {
+            userId: input.userId,
+            eventType: "chat_request_completed",
+            subjectId: input.conversationId,
+            payload: {
+              routingTraceId,
+              routingAttemptId: routingSelection?.attempt.id ?? null,
+              providerId: candidate.providerId,
+              modelId: candidate.modelId,
+              registryModelId: getCandidateRegistryModelId(candidate),
+              attemptNo,
+              fallbackUsed: attemptNo > 1,
+              usageCounts: toUsageCounts(result.usage ?? null),
+            },
+          });
           await markIdempotencyCompleted(options, input, idempotencyKey, response);
           return response;
         }
@@ -498,16 +665,48 @@ export function createChatService(
           failureCode: normalizedFailureCode,
           retryAfterSeconds: result.retryAfterSeconds,
         });
+        await recordUsageForCandidate(options, {
+          candidate,
+          mode: capability,
+          status: "failed",
+          usedFallback: attemptNo > 1,
+          failureCode: normalizedFailureCode,
+          latencyMs,
+          usage: null,
+          occurredAt: endedAt,
+          requestId: routingTraceId,
+          conversationId: input.conversationId,
+        });
 
         // Mark cooldown on the global tracker
         options.cooldownTracker?.markCooldown(candidate.modelId, normalizedFailureCode);
 
         failedModelIds.add(candidate.modelId);
+        addFailedRegistryModelId(failedRegistryModelIds, candidate);
         lastFailedCandidate = candidate;
         lastFailureCode = normalizedFailureCode;
         lastError = normalizedError;
 
         if (!normalizedError.retryable) {
+          break;
+        }
+        forcedNextCandidate = await selectFallbackCandidate({
+          options,
+          rankedProviderCandidates,
+          failedRegistryModelIds,
+          mode: capability,
+          input,
+          requestId: routingTraceId,
+          attemptNo,
+          routingAttemptId: routingSelection?.attempt.id ?? null,
+          failureCode: normalizedFailureCode,
+          failureMessage: normalizedError.message,
+        });
+        if (
+          options.modelFallbackService &&
+          failedRegistryModelIds.size > 0 &&
+          !forcedNextCandidate
+        ) {
           break;
         }
       }
@@ -555,6 +754,17 @@ export function createChatService(
         capacityBlocked: true,
         error: exhaustedError,
       };
+      await recordChatAudit(options, {
+        userId: input.userId,
+        eventType: "chat_request_failed",
+        subjectId: input.conversationId,
+        payload: {
+          routingTraceId,
+          routingAttemptId: routingSelection?.attempt.id ?? null,
+          reasonCode: exhaustedError.code,
+          failedModelCount: failedModelIds.size,
+        },
+      });
       await markIdempotencyCompleted(options, input, idempotencyKey, response);
       return response;
       } catch (error) {
@@ -566,6 +776,238 @@ export function createChatService(
         }
       }
     },
+  };
+}
+
+async function selectInitialChatRoute(input: {
+  options: CreateChatServiceOptions;
+  input: Parameters<ChatService["sendMessage"]>[0];
+  mode: "chat" | "agent";
+  requestId: string;
+  estimatedInputTokens: number;
+}) {
+  if (!input.options.modelRoutingService) return null;
+  return input.options.modelRoutingService.selectRoute({
+    mode: input.mode,
+    userId: input.input.userId,
+    conversationId: input.input.conversationId,
+    companionAvailable: input.mode === "agent" && Boolean(input.input.workspaceId),
+    estimatedInputTokens: input.estimatedInputTokens,
+    requestId: input.requestId,
+  });
+}
+
+async function selectFallbackCandidate(input: {
+  options: CreateChatServiceOptions;
+  rankedProviderCandidates: ProviderCandidate[];
+  failedRegistryModelIds: Set<string>;
+  mode: "chat" | "agent";
+  input: Parameters<ChatService["sendMessage"]>[0];
+  requestId: string;
+  attemptNo: number;
+  routingAttemptId: string | null;
+  failureCode: string;
+  failureMessage: string | null;
+}) {
+  if (!input.options.modelFallbackService || input.failedRegistryModelIds.size === 0) {
+    return null;
+  }
+
+  const fallback = await input.options.modelFallbackService.selectFallback({
+    mode: input.mode,
+    userId: input.input.userId,
+    conversationId: input.input.conversationId,
+    requestId: `${input.requestId}_fb_${input.attemptNo}`,
+    failedRoutingAttemptId: input.routingAttemptId,
+    failedRegistryModelIds: Array.from(input.failedRegistryModelIds),
+    failureCode: input.failureCode,
+    failureMessage: input.failureMessage,
+    companionAvailable: input.mode === "agent" && Boolean(input.input.workspaceId),
+    estimatedInputTokens: estimateMessageTokens(input.input.content),
+  });
+
+  if (fallback.exhausted || !fallback.model) return null;
+  const candidate = findProviderCandidateForRoute(
+    input.rankedProviderCandidates,
+    fallback.model,
+  );
+  return candidate
+    ? {
+        ...candidate,
+        registryModelId: fallback.model.registryModelId,
+        catalogModelId: fallback.model.catalogModelId,
+      }
+    : null;
+}
+
+function findProviderCandidateForRoute(
+  candidates: ProviderCandidate[],
+  model: EligibleModelCandidate,
+) {
+  return candidates.find((candidate) => {
+    if (candidate.registryModelId === model.registryModelId) return true;
+    if (candidate.catalogModelId === model.catalogModelId) return true;
+    if (candidate.modelId === model.registryModelId) return true;
+    if (candidate.modelId === model.catalogModelId) return true;
+    return (
+      candidate.providerId === model.providerId &&
+      candidate.externalModelKey === model.externalModelKey
+    );
+  }) ?? null;
+}
+
+function prioritizeRoutedCandidate(
+  candidates: ProviderCandidate[],
+  routedCandidate: ProviderCandidate,
+  routedModel: EligibleModelCandidate | null,
+) {
+  return [
+    {
+      ...routedCandidate,
+      registryModelId: routedModel?.registryModelId ?? routedCandidate.registryModelId,
+      catalogModelId: routedModel?.catalogModelId ?? routedCandidate.catalogModelId,
+      providerPriority: 0,
+      modelPriority: 0,
+    },
+    ...candidates.filter((candidate) => candidate.modelId !== routedCandidate.modelId),
+  ];
+}
+
+async function recordUsageForCandidate(
+  options: CreateChatServiceOptions,
+  input: {
+    candidate: ProviderCandidate;
+    mode: "chat" | "agent";
+    status: "success" | "failed" | "blocked";
+    usedFallback: boolean;
+    failureCode: string | null;
+    latencyMs: number | null;
+    usage: ProviderUsage | null;
+    occurredAt: Date;
+    requestId: string;
+    conversationId: string;
+  },
+) {
+  const registryModelId = getCandidateRegistryModelId(input.candidate);
+  if (!options.modelUsageService || !registryModelId) return;
+  try {
+    await options.modelUsageService.recordUsage({
+      registryModelId,
+      providerId: input.candidate.providerId,
+      mode: input.mode,
+      status: input.status,
+      usedFallback: input.usedFallback,
+      failureCode: input.failureCode,
+      latencyMs: input.latencyMs,
+      inputTokens: input.usage?.inputTokens ?? 0,
+      outputTokens: input.usage?.outputTokens ?? 0,
+      totalTokens: input.usage?.totalTokens ?? 0,
+      costUsdMicros: 0,
+      occurredAt: input.occurredAt,
+    });
+  } catch (error) {
+    options.logIntegrationError?.({
+      event: "chat.model_usage_record_failed",
+      requestId: input.requestId,
+      conversationId: input.conversationId,
+      error,
+    });
+  }
+}
+
+async function recordBlockedUsage(
+  options: CreateChatServiceOptions,
+  input: {
+    routeModel: EligibleModelCandidate | null;
+    mode: "chat" | "agent";
+    failureCode: string;
+    occurredAt: Date;
+    requestId: string;
+    conversationId: string;
+  },
+) {
+  if (!options.modelUsageService || !input.routeModel) return;
+  try {
+    await options.modelUsageService.recordUsage({
+      registryModelId: input.routeModel.registryModelId,
+      providerId: input.routeModel.providerId,
+      mode: input.mode,
+      status: "blocked",
+      usedFallback: false,
+      failureCode: input.failureCode,
+      latencyMs: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      costUsdMicros: 0,
+      occurredAt: input.occurredAt,
+    });
+  } catch (error) {
+    options.logIntegrationError?.({
+      event: "chat.model_usage_record_failed",
+      requestId: input.requestId,
+      conversationId: input.conversationId,
+      error,
+    });
+  }
+}
+
+async function recordChatAudit(
+  options: CreateChatServiceOptions,
+  input: {
+    userId: string;
+    eventType: string;
+    subjectId: string;
+    payload: Record<string, unknown>;
+  },
+) {
+  try {
+    await options.auditService?.recordEvent({
+      userId: input.userId,
+      eventType: input.eventType,
+      subjectType: "conversation",
+      subjectId: input.subjectId,
+      payload: input.payload,
+    });
+  } catch (error) {
+    options.logIntegrationError?.({
+      event: "chat.audit_record_failed",
+      requestId:
+        typeof input.payload.routingTraceId === "string"
+          ? input.payload.routingTraceId
+          : undefined,
+      conversationId: input.subjectId,
+      error,
+    });
+  }
+}
+
+function addFailedRegistryModelId(
+  failedRegistryModelIds: Set<string>,
+  candidate: ProviderCandidate,
+) {
+  const registryModelId = getCandidateRegistryModelId(candidate);
+  if (registryModelId) failedRegistryModelIds.add(registryModelId);
+}
+
+function getCandidateRegistryModelId(candidate: ProviderCandidate) {
+  if (candidate.registryModelId) return candidate.registryModelId;
+  return candidate.modelId.startsWith("mreg_") ? candidate.modelId : null;
+}
+
+function estimateMessageTokens(content: MessageContent[]) {
+  const textLength = content
+    .filter((item) => item.type === "text")
+    .reduce((total, item) => total + item.text.length, 0);
+  const imageTokenEstimate = content.filter((item) => item.type === "image").length * 256;
+  return Math.ceil(textLength / 4) + imageTokenEstimate;
+}
+
+function toUsageCounts(usage: ProviderUsage | null) {
+  return {
+    input: usage?.inputTokens ?? 0,
+    output: usage?.outputTokens ?? 0,
+    total: usage?.totalTokens ?? 0,
   };
 }
 
@@ -627,10 +1069,11 @@ function capacityBlockedResponse(input: {
   message: string;
   requestId: string;
   retryAfterMs?: number;
+  userMessageId?: string;
 }): SendMessageResponse {
   const response = {
     userMessage: {
-      id: "",
+      id: input.userMessageId ?? "",
       role: "user",
     },
     assistantMessage: null,

@@ -1,4 +1,9 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { EligibleModelCandidate } from "../model-eligibility/domain.js";
+import type { ModelRoutingService } from "../model-routing/interfaces.js";
+import type { ModelFallbackService } from "../model-fallback/interfaces.js";
+import type { ModelUsageService } from "../model-usage/interfaces.js";
+import type { AuditService } from "../audit/interfaces.js";
 import { createInMemoryConversationRepository } from "../conversations/repository.js";
 import {
   createChatService,
@@ -53,6 +58,144 @@ describe("chat service", () => {
       text: "Here is the likely cause.",
     });
     expect(response.provider?.modelId).toBe("mdl_qwen3_30b_free");
+  });
+
+  it("uses routing-selected registry models and records usage plus audit", async () => {
+    const conversation = await conversations.createForUser(userId, "New Conversation");
+    const usageService = createMockUsageService();
+    const auditService = createMockAuditService();
+    const routingService = createMockRoutingService(makeEligibleModel());
+    let invokedCandidate: ProviderCandidate | null = null;
+
+    const service = createChatService({
+      conversationRepository: conversations,
+      providerCandidates: [
+        {
+          providerId: "prov_1",
+          providerName: "OpenRouter",
+          modelId: "mdl_runtime",
+          modelName: "Runtime Model",
+          externalModelKey: "provider/model",
+        },
+      ],
+      modelRoutingService: routingService,
+      modelUsageService: usageService,
+      auditService,
+      invokeProvider: async (candidate) => {
+        invokedCandidate = candidate;
+        return {
+          ok: true,
+          text: "routed reply",
+          usage: {
+            inputTokens: 12,
+            outputTokens: 8,
+            totalTokens: 20,
+          },
+        };
+      },
+    });
+
+    const response = await service.sendMessage({
+      userId,
+      conversationId: conversation.id,
+      content: [{ type: "text", text: "Use the registry route" }],
+    });
+
+    expect(response.capacityBlocked).toBe(false);
+    expect(invokedCandidate).toMatchObject({
+      modelId: "mdl_runtime",
+      registryModelId: "mreg_1",
+    });
+    expect(routingService.selectRoute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: "chat",
+        userId,
+        conversationId: conversation.id,
+        requestId: expect.stringMatching(/^route_/),
+      }),
+    );
+    expect(usageService.recordUsage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        registryModelId: "mreg_1",
+        providerId: "prov_1",
+        status: "success",
+        inputTokens: 12,
+        outputTokens: 8,
+        totalTokens: 20,
+      }),
+    );
+    expect(auditService.recordEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId,
+        eventType: "chat_request_completed",
+        subjectType: "conversation",
+        subjectId: conversation.id,
+      }),
+    );
+  });
+
+  it("uses fallback service decisions after a routed model fails", async () => {
+    const conversation = await conversations.createForUser(userId, "New Conversation");
+    const usageService = createMockUsageService();
+    const fallbackService = createMockFallbackService(makeEligibleModel({
+      registryModelId: "mreg_2",
+      catalogModelId: "mcat_2",
+      externalModelKey: "provider/fallback",
+      displayName: "Fallback Model",
+    }));
+    const invokedModelIds: string[] = [];
+
+    const service = createChatService({
+      conversationRepository: conversations,
+      providerCandidates: [
+        {
+          providerId: "prov_1",
+          providerName: "OpenRouter",
+          modelId: "mdl_primary",
+          modelName: "Primary Model",
+          externalModelKey: "provider/model",
+        },
+        {
+          providerId: "prov_1",
+          providerName: "OpenRouter",
+          modelId: "mdl_fallback",
+          modelName: "Fallback Model",
+          externalModelKey: "provider/fallback",
+        },
+      ],
+      modelRoutingService: createMockRoutingService(makeEligibleModel()),
+      modelFallbackService: fallbackService,
+      modelUsageService: usageService,
+      invokeProvider: async (candidate) => {
+        invokedModelIds.push(candidate.modelId);
+        if (candidate.modelId === "mdl_primary") {
+          return { ok: false, failureCode: "provider_5xx" };
+        }
+        return { ok: true, text: "fallback reply" };
+      },
+    });
+
+    const response = await service.sendMessage({
+      userId,
+      conversationId: conversation.id,
+      content: [{ type: "text", text: "Try fallback" }],
+    });
+
+    expect(invokedModelIds).toEqual(["mdl_primary", "mdl_fallback"]);
+    expect(response.provider?.modelId).toBe("mdl_fallback");
+    expect(fallbackService.selectFallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failedRegistryModelIds: ["mreg_1"],
+        failureCode: "provider_5xx",
+      }),
+    );
+    expect(usageService.recordUsage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        registryModelId: "mreg_2",
+        status: "success",
+        usedFallback: true,
+      }),
+    );
   });
 
   it("preserves the user message when all providers are exhausted", async () => {
@@ -833,3 +976,176 @@ describe("chat service", () => {
     });
   });
 });
+
+function createMockRoutingService(model: EligibleModelCandidate | null): ModelRoutingService {
+  return {
+    selectRoute: vi.fn(async (input) => {
+      if (model) {
+        return {
+          attempt: {
+            id: "ratt_1",
+            requestId: input.requestId ?? "route_test",
+            userId: input.userId,
+            conversationId: input.conversationId ?? null,
+            agentRunId: input.agentRunId ?? null,
+            mode: input.mode,
+            registryModelId: model.registryModelId,
+            status: "selected" as const,
+            eligibleCount: 1,
+            ineligibleCount: 0,
+            reasonCode: null,
+            reasonMessage: null,
+            metadata: null,
+            createdAt: "2026-07-19T10:00:00.000Z",
+          },
+          model,
+          eligibleCount: 1,
+          ineligibleCount: 0,
+        };
+      }
+      return {
+        attempt: {
+          id: "ratt_1",
+          requestId: input.requestId ?? "route_test",
+          userId: input.userId,
+          conversationId: input.conversationId ?? null,
+          agentRunId: input.agentRunId ?? null,
+          mode: input.mode,
+          registryModelId: null,
+          status: "no_eligible_models" as const,
+          eligibleCount: 0,
+          ineligibleCount: 1,
+          reasonCode: "policy_disabled",
+          reasonMessage: "No eligible models are available.",
+          metadata: null,
+          createdAt: "2026-07-19T10:00:00.000Z",
+        },
+        model: null,
+        eligibleCount: 0,
+        ineligibleCount: 1,
+      };
+    }),
+    listAttempts: vi.fn(),
+  };
+}
+
+function createMockFallbackService(model: EligibleModelCandidate | null): ModelFallbackService {
+  return {
+    selectFallback: vi.fn(async (input) => {
+      if (model) {
+        return {
+          decision: {
+            id: "fbk_1",
+            requestId: input.requestId ?? "fallback_test",
+            userId: input.userId,
+            conversationId: input.conversationId ?? null,
+            agentRunId: input.agentRunId ?? null,
+            mode: input.mode,
+            failedRoutingAttemptId: input.failedRoutingAttemptId ?? null,
+            failedRegistryModelIds: input.failedRegistryModelIds,
+            selectedRegistryModelId: model.registryModelId,
+            status: "fallback_selected" as const,
+            failureCode: input.failureCode,
+            failureMessage: input.failureMessage ?? null,
+            eligibleCount: 1,
+            skippedFailedCount: input.failedRegistryModelIds.length,
+            reasonCode: null,
+            reasonMessage: null,
+            metadata: null,
+            createdAt: "2026-07-19T10:00:00.000Z",
+          },
+          model,
+          exhausted: false as const,
+        };
+      }
+      return {
+        decision: {
+          id: "fbk_1",
+          requestId: input.requestId ?? "fallback_test",
+          userId: input.userId,
+          conversationId: input.conversationId ?? null,
+          agentRunId: input.agentRunId ?? null,
+          mode: input.mode,
+          failedRoutingAttemptId: input.failedRoutingAttemptId ?? null,
+          failedRegistryModelIds: input.failedRegistryModelIds,
+          selectedRegistryModelId: null,
+          status: "exhausted" as const,
+          failureCode: input.failureCode,
+          failureMessage: input.failureMessage ?? null,
+          eligibleCount: 0,
+          skippedFailedCount: input.failedRegistryModelIds.length,
+          reasonCode: "fallback_exhausted",
+          reasonMessage: "No fallback is available.",
+          metadata: null,
+          createdAt: "2026-07-19T10:00:00.000Z",
+        },
+        model: null,
+        exhausted: true as const,
+      };
+    }),
+    listDecisions: vi.fn(),
+  };
+}
+
+function createMockUsageService(): ModelUsageService {
+  return {
+    recordUsage: vi.fn(async () => ({ counters: [] })),
+    listCounters: vi.fn(),
+    getSummary: vi.fn(),
+  };
+}
+
+function createMockAuditService(): AuditService {
+  return {
+    recordEvent: vi.fn(async (input) => ({
+      id: "aud_1",
+      userId: input.userId,
+      deviceId: input.deviceId ?? null,
+      eventType: input.eventType,
+      subjectType: input.subjectType,
+      subjectId: input.subjectId,
+      payload: input.payload ?? null,
+      createdAt: input.createdAt ?? new Date("2026-07-19T10:00:00.000Z"),
+    })),
+    getEvent: vi.fn(),
+    listEvents: vi.fn(),
+  };
+}
+
+function makeEligibleModel(
+  input: Partial<EligibleModelCandidate> = {},
+): EligibleModelCandidate {
+  return {
+    registryModelId: input.registryModelId ?? "mreg_1",
+    catalogModelId: input.catalogModelId ?? "mcat_1",
+    providerId: input.providerId ?? "prov_1",
+    providerName: input.providerName ?? "OpenRouter",
+    externalModelKey: input.externalModelKey ?? "provider/model",
+    displayName: input.displayName ?? "Primary Model",
+    capabilities: input.capabilities ?? {
+      chat: true,
+      agent: false,
+      vision: false,
+      toolUse: false,
+      jsonMode: true,
+    },
+    contextWindow: input.contextWindow ?? 8192,
+    maxOutputTokens: input.maxOutputTokens ?? 2048,
+    priorityRank: input.priorityRank ?? 1,
+    providerPriorityRank: input.providerPriorityRank ?? 1,
+    defaultForChat: input.defaultForChat ?? true,
+    defaultForAgent: input.defaultForAgent ?? false,
+    requiresCompanion: input.requiresCompanion ?? false,
+    requestsPerMinuteLimit: input.requestsPerMinuteLimit ?? null,
+    tokensPerDayLimit: input.tokensPerDayLimit ?? null,
+    tokensPerRequestLimit: input.tokensPerRequestLimit ?? null,
+    runtimeStatus: input.runtimeStatus ?? "healthy",
+    providerHealthStatus: input.providerHealthStatus ?? "healthy",
+    reasons: input.reasons ?? [
+      {
+        code: "eligible",
+        message: "Model is eligible.",
+      },
+    ],
+  };
+}

@@ -877,6 +877,10 @@ export function buildProductionApp() {
         }));
       },
       invokeProvider: createProviderInvoker(driverRegistry),
+      modelRoutingService,
+      modelFallbackService,
+      modelUsageService,
+      auditService,
       cooldownTracker: globalCooldownTracker,
       recordProviderAttempt: async (input) => {
         await recordProviderAttempt(input);
@@ -951,6 +955,17 @@ export function buildProductionApp() {
             truncatedContext: entry.truncatedContext,
           },
           "Prompt assembly completed",
+        );
+      },
+      logIntegrationError: (entry) => {
+        runtimeLogger?.warn(
+          {
+            event: entry.event,
+            requestId: entry.requestId ?? null,
+            conversationId: entry.conversationId ?? null,
+            error: entry.error,
+          },
+          "Chat integration side effect failed",
         );
       },
       idempotencyStore: createDatabaseChatIdempotencyStore(),
