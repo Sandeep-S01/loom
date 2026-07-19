@@ -123,7 +123,11 @@ function getEligibilityReasons(
   if (model.providerStatus === "disabled") {
     reasons.push(reason("provider_disabled", "Provider is disabled."));
   }
-  if (providerHealth.status === "unavailable" || providerHealth.status === "auth_invalid") {
+  if (
+    providerHealth.status === "unavailable" ||
+    providerHealth.status === "auth_invalid" ||
+    isFutureDate(providerHealth.cooldownUntil)
+  ) {
     reasons.push(reason("provider_unavailable", "Provider is currently unavailable."));
   }
   if (
@@ -227,6 +231,7 @@ function getProviderHealth(
   return providerHealth.get(model.providerId) ?? {
     providerId: model.providerId,
     status: "healthy" as const,
+    cooldownUntil: null,
     checkedAt: null,
     reason: null,
   };

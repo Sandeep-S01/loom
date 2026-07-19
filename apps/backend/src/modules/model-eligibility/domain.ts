@@ -84,6 +84,7 @@ export interface RuntimeHealthSnapshot {
 export interface ProviderHealthSnapshot {
   providerId: string;
   status: ProviderHealthStatus;
+  cooldownUntil: Date | null;
   checkedAt: Date | null;
   reason: string | null;
 }

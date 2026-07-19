@@ -310,6 +310,36 @@ export const modelRuntimeState = pgTable(
   ],
 );
 
+export const providerHealthState = pgTable(
+  "provider_health_state",
+  {
+    id: varchar("id", { length: 50 }).primaryKey(),
+    providerId: varchar("provider_id", { length: 50 })
+      .notNull()
+      .references(() => providers.id),
+    status: varchar("status", { length: 30 }).notNull().default("unknown"),
+    cooldownUntil: timestamp("cooldown_until", { withTimezone: true }),
+    consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+    lastFailureCode: varchar("last_failure_code", { length: 80 }),
+    lastFailureAt: timestamp("last_failure_at", { withTimezone: true }),
+    lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    reason: text("reason"),
+    updatedByUserId: varchar("updated_by_user_id", { length: 50 }).references(
+      () => users.id,
+    ),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("uq_provider_health_state_provider").on(table.providerId),
+    index("idx_provider_health_state_status").on(table.status),
+    index("idx_provider_health_state_cooldown").on(table.cooldownUntil),
+    index("idx_provider_health_state_last_checked").on(table.lastCheckedAt),
+    index("idx_provider_health_state_updated").on(table.updatedAt),
+  ],
+);
+
 export const conversations = pgTable(
   "conversations",
   {

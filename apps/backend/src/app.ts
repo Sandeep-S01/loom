@@ -92,6 +92,7 @@ import { registerModelRegistryAdminRoutes } from "./modules/model-registry/admin
 import { registerModelPolicyAdminRoutes } from "./modules/model-policy/admin-routes.js";
 import { registerModelEligibilityRoutes } from "./modules/model-eligibility/routes.js";
 import { registerModelRuntimeHealthAdminRoutes } from "./modules/model-runtime-health/admin-routes.js";
+import { registerProviderHealthAdminRoutes } from "./modules/provider-health/admin-routes.js";
 import {
   createProviderManagementService,
 } from "./modules/providers/management-service.js";
@@ -131,7 +132,6 @@ import { createModelEligibilityService } from "./modules/model-eligibility/servi
 import {
   createDatabaseEligibilitySourceReader,
   createInMemoryEligibilitySourceReader,
-  createStaticProviderHealthReader,
 } from "./modules/model-eligibility/repository.js";
 import type { ModelEligibilityService } from "./modules/model-eligibility/interfaces.js";
 import { createModelRuntimeHealthService } from "./modules/model-runtime-health/service.js";
@@ -142,6 +142,14 @@ import {
   createInMemoryModelRuntimeHealthRepository,
 } from "./modules/model-runtime-health/repository.js";
 import type { ModelRuntimeHealthService } from "./modules/model-runtime-health/interfaces.js";
+import { createProviderHealthService } from "./modules/provider-health/service.js";
+import {
+  createDatabaseProviderHealthProviderReader,
+  createDatabaseProviderHealthRepository,
+  createInMemoryProviderHealthProviderReader,
+  createInMemoryProviderHealthRepository,
+} from "./modules/provider-health/repository.js";
+import type { ProviderHealthService } from "./modules/provider-health/interfaces.js";
 import { checkDatabaseConnection } from "./db/connection.js";
 import { checkRedisConnection } from "./redis/client.js";
 import {
@@ -165,6 +173,7 @@ interface BuildAppOptions {
   modelPolicyService?: ModelPolicyService;
   modelEligibilityService?: ModelEligibilityService;
   modelRuntimeHealthService?: ModelRuntimeHealthService;
+  providerHealthService?: ProviderHealthService;
   dashboardService?: DashboardService;
   companionService?: CompanionService;
   workspacesService?: WorkspacesService;
@@ -237,12 +246,19 @@ export function buildApp(options: BuildAppOptions = {}) {
       registryReader: createInMemoryModelRuntimeHealthRegistryReader(),
       logger: app.log,
     });
+  const providerHealthService =
+    options.providerHealthService ??
+    createProviderHealthService({
+      repository: createInMemoryProviderHealthRepository(),
+      providerReader: createInMemoryProviderHealthProviderReader(),
+      logger: app.log,
+    });
   const modelEligibilityService =
     options.modelEligibilityService ??
     createModelEligibilityService({
       sourceReader: createInMemoryEligibilitySourceReader(),
       runtimeHealthReader: modelRuntimeHealthService,
-      providerHealthReader: createStaticProviderHealthReader(),
+      providerHealthReader: providerHealthService,
       logger: app.log,
     });
   const chatService =
@@ -593,6 +609,9 @@ export function buildApp(options: BuildAppOptions = {}) {
         await registerModelRuntimeHealthAdminRoutes(adminApp, {
           modelRuntimeHealthService,
         });
+        await registerProviderHealthAdminRoutes(adminApp, {
+          providerHealthService,
+        });
       },
       {
         prefix: "/api/v1/admin",
@@ -647,10 +666,14 @@ export function buildProductionApp() {
     repository: createDatabaseModelRuntimeHealthRepository(),
     registryReader: createDatabaseModelRuntimeHealthRegistryReader(),
   });
+  const providerHealthService = createProviderHealthService({
+    repository: createDatabaseProviderHealthRepository(),
+    providerReader: createDatabaseProviderHealthProviderReader(),
+  });
   const modelEligibilityService = createModelEligibilityService({
     sourceReader: createDatabaseEligibilitySourceReader(),
     runtimeHealthReader: modelRuntimeHealthService,
-    providerHealthReader: createStaticProviderHealthReader(),
+    providerHealthReader: providerHealthService,
   });
   const retentionCleanup = createRetentionCleanupService({
     policy: {
@@ -695,6 +718,7 @@ export function buildProductionApp() {
     modelPolicyService,
     modelEligibilityService,
     modelRuntimeHealthService,
+    providerHealthService,
     marketplaceService,
     dashboardService,
     companionService,

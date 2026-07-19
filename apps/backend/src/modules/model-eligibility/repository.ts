@@ -91,6 +91,7 @@ export function createStaticProviderHealthReader(
           rowsByProviderId.get(providerId) ?? {
             providerId,
             status: "healthy" as const,
+            cooldownUntil: null,
             checkedAt: null,
             reason: null,
           },

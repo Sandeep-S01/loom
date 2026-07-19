@@ -131,6 +131,10 @@ describe("model eligibility service", () => {
           providerId: "prv_down",
         }),
         makeSourceModel({
+          registryModelId: "mreg_provider_cooling",
+          providerId: "prv_cooling",
+        }),
+        makeSourceModel({
           registryModelId: "mreg_limited",
         }),
         makeSourceModel({
@@ -157,8 +161,16 @@ describe("model eligibility service", () => {
         {
           providerId: "prv_down",
           status: "unavailable",
+          cooldownUntil: null,
           checkedAt: null,
           reason: "maintenance",
+        },
+        {
+          providerId: "prv_cooling",
+          status: "healthy",
+          cooldownUntil: new Date(Date.now() + 60_000),
+          checkedAt: null,
+          reason: "provider cooldown",
         },
       ]),
     });
@@ -173,6 +185,7 @@ describe("model eligibility service", () => {
     expect(result.eligible).toEqual([]);
     expect(result.ineligible.map((item) => item.reasons[0]?.code)).toEqual([
       "provider_disabled",
+      "provider_unavailable",
       "provider_unavailable",
       "runtime_unavailable",
       "runtime_unavailable",

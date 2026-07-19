@@ -10,6 +10,7 @@ import type { ModelRegistryApprovalService } from "./modules/model-registry/inte
 import type { ModelPolicyService } from "./modules/model-policy/interfaces.js";
 import type { ModelEligibilityService } from "./modules/model-eligibility/interfaces.js";
 import type { ModelRuntimeHealthService } from "./modules/model-runtime-health/interfaces.js";
+import type { ProviderHealthService } from "./modules/provider-health/interfaces.js";
 import type { SessionService } from "./modules/session/service.js";
 import { SESSION_COOKIE_NAME } from "./plugins/session.js";
 
@@ -1191,6 +1192,152 @@ describe("admin route protection", () => {
     const response = await customerApp.inject({
       method: "GET",
       url: "/api/v1/admin/model-runtime-health",
+      cookies: {
+        [SESSION_COOKIE_NAME]: "session_customer",
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.message).toBe("Admin access required.");
+
+    await customerApp.close();
+  });
+
+  it("returns provider health results to admins with parsed query filters", async () => {
+    const listProviderHealth = vi.fn(async (filters) => ({
+      items: [],
+      page: filters.page,
+      pageSize: filters.pageSize,
+      total: 0,
+      hasNextPage: false,
+    }));
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+      providerHealthService: {
+        listProviderHealth,
+        getProviderHealthModel: vi.fn(),
+        upsertProviderHealth: vi.fn(),
+        resetProviderHealth: vi.fn(),
+        getProviderHealth: vi.fn(),
+      },
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/provider-health?pageSize=1000&status=unavailable",
+      cookies: { [SESSION_COOKIE_NAME]: "session_admin" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      items: [],
+      page: 1,
+      pageSize: 100,
+      total: 0,
+      hasNextPage: false,
+    });
+    expect(listProviderHealth).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "unavailable",
+        pageSize: 100,
+      }),
+    );
+  });
+
+  it("updates provider health for admins", async () => {
+    const upsertProviderHealth: ProviderHealthService["upsertProviderHealth"] =
+      vi.fn(async (input) => ({
+        id: "phs_openrouter",
+        providerId: input.providerId,
+        status: input.patch.status ?? "unknown",
+        cooldownUntil: input.patch.cooldownUntil?.toISOString() ?? null,
+        consecutiveFailures: input.patch.consecutiveFailures ?? 0,
+        lastFailureCode: input.patch.lastFailureCode ?? null,
+        lastFailureAt: input.patch.lastFailureAt?.toISOString() ?? null,
+        lastSuccessAt: input.patch.lastSuccessAt?.toISOString() ?? null,
+        lastCheckedAt: input.patch.lastCheckedAt?.toISOString() ?? null,
+        reason: input.patch.reason ?? null,
+        updatedByUserId: input.actorUserId,
+        createdAt: "2026-07-19T00:00:00.000Z",
+        updatedAt: "2026-07-19T00:00:00.000Z",
+      }));
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+      providerHealthService: {
+        listProviderHealth: vi.fn(),
+        getProviderHealthModel: vi.fn(),
+        upsertProviderHealth,
+        resetProviderHealth: vi.fn(),
+        getProviderHealth: vi.fn(),
+      },
+    });
+
+    const response = await app.inject({
+      method: "PUT",
+      url: "/api/v1/admin/provider-health/prv_openrouter",
+      cookies: { [SESSION_COOKIE_NAME]: "session_admin" },
+      payload: {
+        status: "auth_invalid",
+        consecutiveFailures: 2,
+        cooldownUntil: "2026-07-19T01:00:00.000Z",
+        reason: "Credentials rejected upstream",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(
+      expect.objectContaining({
+        providerId: "prv_openrouter",
+        status: "auth_invalid",
+        consecutiveFailures: 2,
+      }),
+    );
+    expect(upsertProviderHealth).toHaveBeenCalledWith({
+      providerId: "prv_openrouter",
+      actorUserId: "usr_seeded",
+      patch: {
+        status: "auth_invalid",
+        consecutiveFailures: 2,
+        cooldownUntil: new Date("2026-07-19T01:00:00.000Z"),
+        reason: "Credentials rejected upstream",
+      },
+    });
+  });
+
+  it("rejects invalid provider health payloads before service execution", async () => {
+    const upsertProviderHealth = vi.fn();
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+      providerHealthService: {
+        listProviderHealth: vi.fn(),
+        getProviderHealthModel: vi.fn(),
+        upsertProviderHealth,
+        resetProviderHealth: vi.fn(),
+        getProviderHealth: vi.fn(),
+      },
+    });
+
+    const response = await app.inject({
+      method: "PUT",
+      url: "/api/v1/admin/provider-health/prv_openrouter",
+      cookies: { [SESSION_COOKIE_NAME]: "session_admin" },
+      payload: {
+        status: "offline",
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(upsertProviderHealth).not.toHaveBeenCalled();
+  });
+
+  it("blocks customer access to the provider health admin API", async () => {
+    const customerApp = buildApp({
+      sessionService: createCustomerTestSessionService(),
+    });
+
+    const response = await customerApp.inject({
+      method: "GET",
+      url: "/api/v1/admin/provider-health",
       cookies: {
         [SESSION_COOKIE_NAME]: "session_customer",
       },
