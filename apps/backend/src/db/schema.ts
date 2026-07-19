@@ -819,5 +819,12 @@ export const auditEvents = pgTable(
   (table) => [
     index("idx_audit_events_user_created").on(table.userId, table.createdAt),
     index("idx_audit_events_type_created").on(table.eventType, table.createdAt),
+    index("idx_audit_events_created").on(table.createdAt),
+    index("idx_audit_events_subject_created").on(
+      table.subjectType,
+      table.subjectId,
+      table.createdAt,
+    ),
+    index("idx_audit_events_device_created").on(table.deviceId, table.createdAt),
   ],
 );

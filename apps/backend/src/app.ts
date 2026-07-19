@@ -97,6 +97,7 @@ import { registerModelRuntimeHealthAdminRoutes } from "./modules/model-runtime-h
 import { registerProviderHealthAdminRoutes } from "./modules/provider-health/admin-routes.js";
 import { registerModelDiscoveryAdminRoutes } from "./modules/model-discovery/admin-routes.js";
 import { registerModelUsageAdminRoutes } from "./modules/model-usage/admin-routes.js";
+import { registerAuditAdminRoutes } from "./modules/audit/admin-routes.js";
 import {
   createProviderManagementService,
 } from "./modules/providers/management-service.js";
@@ -161,6 +162,12 @@ import {
   createInMemoryModelUsageRepository,
 } from "./modules/model-usage/repository.js";
 import type { ModelUsageService } from "./modules/model-usage/interfaces.js";
+import { createAuditService } from "./modules/audit/service.js";
+import {
+  createDatabaseAuditEventRepository,
+  createInMemoryAuditEventRepository,
+} from "./modules/audit/repository.js";
+import type { AuditService } from "./modules/audit/interfaces.js";
 import { createProviderHealthService } from "./modules/provider-health/service.js";
 import {
   createDatabaseProviderHealthProviderReader,
@@ -210,6 +217,7 @@ interface BuildAppOptions {
   modelRoutingService?: ModelRoutingService;
   modelRuntimeHealthService?: ModelRuntimeHealthService;
   modelUsageService?: ModelUsageService;
+  auditService?: AuditService;
   providerHealthService?: ProviderHealthService;
   modelDiscoveryService?: ModelDiscoveryService;
   dashboardService?: DashboardService;
@@ -288,6 +296,12 @@ export function buildApp(options: BuildAppOptions = {}) {
     options.modelUsageService ??
     createModelUsageService({
       repository: createInMemoryModelUsageRepository(),
+      logger: app.log,
+    });
+  const auditService =
+    options.auditService ??
+    createAuditService({
+      repository: createInMemoryAuditEventRepository(),
       logger: app.log,
     });
   const providerHealthService =
@@ -699,6 +713,9 @@ export function buildApp(options: BuildAppOptions = {}) {
         await registerModelUsageAdminRoutes(adminApp, {
           modelUsageService,
         });
+        await registerAuditAdminRoutes(adminApp, {
+          auditService,
+        });
       },
       {
         prefix: "/api/v1/admin",
@@ -755,6 +772,9 @@ export function buildProductionApp() {
   });
   const modelUsageService = createModelUsageService({
     repository: createDatabaseModelUsageRepository(),
+  });
+  const auditService = createAuditService({
+    repository: createDatabaseAuditEventRepository(),
   });
   const providerHealthService = createProviderHealthService({
     repository: createDatabaseProviderHealthRepository(),
@@ -828,6 +848,7 @@ export function buildProductionApp() {
     modelRoutingService,
     modelRuntimeHealthService,
     modelUsageService,
+    auditService,
     providerHealthService,
     modelDiscoveryService,
     marketplaceService,

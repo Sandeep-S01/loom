@@ -13,6 +13,7 @@ import type { ModelFallbackService } from "./modules/model-fallback/interfaces.j
 import type { ModelRoutingService } from "./modules/model-routing/interfaces.js";
 import type { ModelRuntimeHealthService } from "./modules/model-runtime-health/interfaces.js";
 import type { ModelUsageService } from "./modules/model-usage/interfaces.js";
+import type { AuditService } from "./modules/audit/interfaces.js";
 import type { ProviderHealthService } from "./modules/provider-health/interfaces.js";
 import type { ModelDiscoveryService } from "./modules/model-discovery/interfaces.js";
 import type { SessionService } from "./modules/session/service.js";
@@ -2158,6 +2159,89 @@ describe("model usage routes", () => {
     const response = await customerApp.inject({
       method: "GET",
       url: "/api/v1/admin/model-usage/summary",
+      cookies: { [SESSION_COOKIE_NAME]: "session_customer" },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.message).toBe("Admin access required.");
+
+    await customerApp.close();
+  });
+});
+
+describe("audit routes", () => {
+  it("returns audit events and details to admins", async () => {
+    const listEvents: AuditService["listEvents"] = vi.fn(async (filters) => ({
+      items: [],
+      page: filters.page,
+      pageSize: filters.pageSize,
+      total: 0,
+      hasNextPage: false,
+    }));
+    const getEvent: AuditService["getEvent"] = vi.fn(async () => ({
+      event: {
+        id: "aud_1",
+        userId: "usr_seeded",
+        deviceId: null,
+        eventType: "session_login",
+        subjectType: "user",
+        subjectId: "usr_seeded",
+        payload: null,
+        createdAt: "2026-07-19T10:00:00.000Z",
+      },
+    }));
+    app = buildApp({
+      sessionService: createStrictTestSessionService(),
+      auditService: {
+        recordEvent: vi.fn(),
+        listEvents,
+        getEvent,
+      },
+    });
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/audit-events?eventType=session_login&pageSize=20",
+      cookies: { [SESSION_COOKIE_NAME]: "session_admin" },
+    });
+    const detailResponse = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/audit-events/aud_1",
+      cookies: { [SESSION_COOKIE_NAME]: "session_admin" },
+    });
+
+    expect(listResponse.statusCode).toBe(200);
+    expect(detailResponse.statusCode).toBe(200);
+    expect(listEvents).toHaveBeenCalledWith({
+      userId: undefined,
+      deviceId: undefined,
+      eventType: "session_login",
+      subjectType: undefined,
+      subjectId: undefined,
+      search: undefined,
+      from: undefined,
+      to: undefined,
+      page: 1,
+      pageSize: 20,
+      sort: "createdAt",
+      direction: "desc",
+    });
+    expect(getEvent).toHaveBeenCalledWith("aud_1");
+  });
+
+  it("blocks customer access to audit logs", async () => {
+    const customerApp = buildApp({
+      sessionService: createCustomerTestSessionService(),
+      auditService: {
+        recordEvent: vi.fn(),
+        listEvents: vi.fn(),
+        getEvent: vi.fn(),
+      },
+    });
+
+    const response = await customerApp.inject({
+      method: "GET",
+      url: "/api/v1/admin/audit-events",
       cookies: { [SESSION_COOKIE_NAME]: "session_customer" },
     });
 

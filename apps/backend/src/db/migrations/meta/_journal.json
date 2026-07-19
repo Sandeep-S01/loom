@@ -134,6 +134,13 @@
       "when": 1784776800000,
       "tag": "0018_model_usage_counters",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1784863200000,
+      "tag": "0019_audit_event_admin_indexes",
+      "breakpoints": true
     }
   ]
 }
