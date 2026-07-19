@@ -176,6 +176,7 @@ import {
   type RetentionCleanupService,
 } from "./maintenance/retention.js";
 import { registerRetentionCleanupJob } from "./maintenance/retention-job.js";
+import { registerModelDiscoveryScheduler } from "./modules/scheduler/discovery-scheduler.js";
 
 interface BuildAppOptions {
   sessionService?: SessionService;
@@ -380,6 +381,11 @@ export function buildApp(options: BuildAppOptions = {}) {
   registerMarketplaceSyncJob(app, marketplaceService, {
     intervalMs: getOptionalEnvInt("FREE_MARKETPLACE_SYNC_INTERVAL_MS", 0),
     runOnStartup: process.env.FREE_MARKETPLACE_SYNC_ON_STARTUP === "true",
+  });
+
+  registerModelDiscoveryScheduler(app, modelDiscoveryService, {
+    intervalMs: getOptionalEnvInt("MODEL_DISCOVERY_INTERVAL_MS", 0),
+    runOnStartup: process.env.MODEL_DISCOVERY_ON_STARTUP === "true",
   });
 
   if (options.retentionCleanup) {

@@ -7,6 +7,7 @@ import type {
   DiscoveryProviderReference,
   ProviderSyncStatusDTO,
   ProviderSyncStatusRecord,
+  RunDiscoveryInput,
 } from "./domain.js";
 import type {
   CreateModelDiscoveryServiceOptions,
@@ -24,6 +25,120 @@ export function createModelDiscoveryService(
   options: CreateModelDiscoveryServiceOptions,
 ): ModelDiscoveryService {
   const logger = options.logger ?? noopLogger;
+
+  async function runProviderDiscovery(input: RunDiscoveryInput) {
+    const provider = await resolveDiscoverableProvider(
+      options.providerReader,
+      input.providerId,
+    );
+    const adapter = options.adapterRegistry.getAdapter(provider.driverKey);
+    if (!adapter) {
+      throw conflict("No discovery adapter is registered for this provider.");
+    }
+
+    const job = await options.jobRepository.create(input);
+    await options.syncStatusRepository.upsert({
+      providerId: provider.id,
+      lastJobId: job.id,
+      status: "syncing",
+      startedAt: job.startedAt,
+      failureCode: null,
+      failureMessage: null,
+    });
+
+    try {
+      const discoveredAt = new Date();
+      const discoveredModels = await adapter.discoverFreeModels(provider);
+      const freeModels = discoveredModels.filter((model) => model.costTier === "free");
+      const catalogInputs = freeModels.map((model) =>
+        toCatalogInput(provider.id, model, discoveredAt),
+      );
+
+      const upsertResult =
+        catalogInputs.length === 0
+          ? { upsertedCount: 0 }
+          : await options.catalogService.upsertDiscoveredModels({
+              providerId: provider.id,
+              models: catalogInputs,
+            });
+      const completedAt = new Date();
+      const skippedCount = discoveredModels.length - freeModels.length;
+      const updatedJob = await options.jobRepository.update(job.id, {
+        status: "succeeded",
+        completedAt,
+        discoveredCount: discoveredModels.length,
+        upsertedCount: upsertResult.upsertedCount,
+        skippedCount,
+        failureCode: null,
+        failureMessage: null,
+        metadata: {
+          providerName: provider.name,
+          driverKey: provider.driverKey,
+          freeOnly: true,
+        },
+      });
+
+      await options.syncStatusRepository.upsert({
+        providerId: provider.id,
+        lastJobId: job.id,
+        status: "succeeded",
+        succeededAt: completedAt,
+        failureCode: null,
+        failureMessage: null,
+        discoveredCount: discoveredModels.length,
+        upsertedCount: upsertResult.upsertedCount,
+      });
+
+      logger.info(
+        {
+          event: "model_discovery.job_succeeded",
+          providerId: provider.id,
+          discoveryJobId: job.id,
+          discoveredCount: discoveredModels.length,
+          upsertedCount: upsertResult.upsertedCount,
+          skippedCount,
+        },
+        "Model discovery job succeeded",
+      );
+
+      return mapJob(requireUpdatedJob(updatedJob));
+    } catch (error) {
+      const completedAt = new Date();
+      const failure = normalizeDiscoveryFailure(error);
+      const updatedJob = await options.jobRepository.update(job.id, {
+        status: "failed",
+        completedAt,
+        failureCode: failure.code,
+        failureMessage: failure.message,
+        metadata: {
+          providerName: provider.name,
+          driverKey: provider.driverKey,
+          freeOnly: true,
+        },
+      });
+
+      await options.syncStatusRepository.upsert({
+        providerId: provider.id,
+        lastJobId: job.id,
+        status: "failed",
+        failedAt: completedAt,
+        failureCode: failure.code,
+        failureMessage: failure.message,
+      });
+
+      logger.error(
+        {
+          event: "model_discovery.job_failed",
+          providerId: provider.id,
+          discoveryJobId: job.id,
+          failureCode: failure.code,
+        },
+        "Model discovery job failed",
+      );
+
+      return mapJob(requireUpdatedJob(updatedJob));
+    }
+  }
 
   return {
     async listJobs(filters) {
@@ -58,118 +173,45 @@ export function createModelDiscoveryService(
       return mapSyncStatus(status);
     },
 
-    async runProviderDiscovery(input) {
-      const provider = await resolveDiscoverableProvider(
-        options.providerReader,
-        input.providerId,
-      );
-      const adapter = options.adapterRegistry.getAdapter(provider.driverKey);
-      if (!adapter) {
-        throw conflict("No discovery adapter is registered for this provider.");
-      }
+    runProviderDiscovery,
 
-      const job = await options.jobRepository.create(input);
-      await options.syncStatusRepository.upsert({
-        providerId: provider.id,
-        lastJobId: job.id,
-        status: "syncing",
-        startedAt: job.startedAt,
-        failureCode: null,
-        failureMessage: null,
-      });
-
-      try {
-        const discoveredAt = new Date();
-        const discoveredModels = await adapter.discoverFreeModels(provider);
-        const freeModels = discoveredModels.filter((model) => model.costTier === "free");
-        const catalogInputs = freeModels.map((model) =>
-          toCatalogInput(provider.id, model, discoveredAt),
-        );
-
-        const upsertResult =
-          catalogInputs.length === 0
-            ? { upsertedCount: 0 }
-            : await options.catalogService.upsertDiscoveredModels({
-                providerId: provider.id,
-                models: catalogInputs,
-              });
-        const completedAt = new Date();
-        const skippedCount = discoveredModels.length - freeModels.length;
-        const updatedJob = await options.jobRepository.update(job.id, {
-          status: "succeeded",
-          completedAt,
-          discoveredCount: discoveredModels.length,
-          upsertedCount: upsertResult.upsertedCount,
-          skippedCount,
-          failureCode: null,
-          failureMessage: null,
-          metadata: {
-            providerName: provider.name,
-            driverKey: provider.driverKey,
-            freeOnly: true,
-          },
-        });
-
-        await options.syncStatusRepository.upsert({
-          providerId: provider.id,
-          lastJobId: job.id,
-          status: "succeeded",
-          succeededAt: completedAt,
-          failureCode: null,
-          failureMessage: null,
-          discoveredCount: discoveredModels.length,
-          upsertedCount: upsertResult.upsertedCount,
-        });
-
-        logger.info(
-          {
-            event: "model_discovery.job_succeeded",
+    async runDiscoverableProvidersDiscovery(input) {
+      const providers = await options.providerReader.listDiscoverableProviders();
+      const jobs = [];
+      let failedCount = 0;
+      let succeededCount = 0;
+      for (const provider of providers) {
+        try {
+          const job = await runProviderDiscovery({
             providerId: provider.id,
-            discoveryJobId: job.id,
-            discoveredCount: discoveredModels.length,
-            upsertedCount: upsertResult.upsertedCount,
-            skippedCount,
-          },
-          "Model discovery job succeeded",
-        );
-
-        return mapJob(requireUpdatedJob(updatedJob));
-      } catch (error) {
-        const completedAt = new Date();
-        const failure = normalizeDiscoveryFailure(error);
-        const updatedJob = await options.jobRepository.update(job.id, {
-          status: "failed",
-          completedAt,
-          failureCode: failure.code,
-          failureMessage: failure.message,
-          metadata: {
-            providerName: provider.name,
-            driverKey: provider.driverKey,
-            freeOnly: true,
-          },
-        });
-
-        await options.syncStatusRepository.upsert({
-          providerId: provider.id,
-          lastJobId: job.id,
-          status: "failed",
-          failedAt: completedAt,
-          failureCode: failure.code,
-          failureMessage: failure.message,
-        });
-
-        logger.error(
-          {
-            event: "model_discovery.job_failed",
-            providerId: provider.id,
-            discoveryJobId: job.id,
-            failureCode: failure.code,
-          },
-          "Model discovery job failed",
-        );
-
-        return mapJob(requireUpdatedJob(updatedJob));
+            triggerType: input.triggerType,
+            actorUserId: input.actorUserId,
+          });
+          jobs.push(job);
+          if (job.status === "failed") {
+            failedCount += 1;
+          } else {
+            succeededCount += 1;
+          }
+        } catch (error) {
+          failedCount += 1;
+          logger.warn(
+            {
+              event: "model_discovery.provider_skipped",
+              providerId: provider.id,
+              driverKey: provider.driverKey,
+              error: error instanceof Error ? error.message : "Unknown discovery error",
+            },
+            "Provider discovery skipped",
+          );
+        }
       }
+      return {
+        attemptedCount: providers.length,
+        succeededCount,
+        failedCount,
+        jobs,
+      };
     },
   };
 }

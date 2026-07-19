@@ -7,6 +7,7 @@ import type {
   DiscoveryJobRecord,
   DiscoveryJobUpdate,
   DiscoveryProviderReference,
+  DiscoverableProvidersDiscoveryResult,
   PaginatedDiscoveryJobsResult,
   PaginatedProviderSyncStatusResult,
   ProviderSyncStatusDTO,
@@ -15,6 +16,7 @@ import type {
   ProviderSyncStatusUpdate,
   ProviderSyncStatusRecord,
   RunDiscoveryInput,
+  RunDiscoverableProvidersDiscoveryInput,
 } from "./domain.js";
 
 export interface DiscoveryProviderReader {
@@ -60,6 +62,9 @@ export interface ModelDiscoveryService {
   ): Promise<ProviderSyncStatusListResponse>;
   getProviderSyncStatus(providerId: string): Promise<ProviderSyncStatusDTO>;
   runProviderDiscovery(input: RunDiscoveryInput): Promise<DiscoveryJobDTO>;
+  runDiscoverableProvidersDiscovery(
+    input: RunDiscoverableProvidersDiscoveryInput,
+  ): Promise<DiscoverableProvidersDiscoveryResult>;
 }
 
 export interface CreateModelDiscoveryServiceOptions {

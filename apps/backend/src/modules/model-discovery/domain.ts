@@ -147,6 +147,18 @@ export interface RunDiscoveryInput {
   actorUserId: string | null;
 }
 
+export interface RunDiscoverableProvidersDiscoveryInput {
+  triggerType: DiscoveryTriggerType;
+  actorUserId: string | null;
+}
+
+export interface DiscoverableProvidersDiscoveryResult {
+  attemptedCount: number;
+  succeededCount: number;
+  failedCount: number;
+  jobs: DiscoveryJobDTO[];
+}
+
 export interface DiscoveryJobUpdate {
   status: DiscoveryJobStatus;
   completedAt?: Date | null;

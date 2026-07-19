@@ -1377,6 +1377,7 @@ describe("admin route protection", () => {
         listProviderSyncStatus: vi.fn(),
         getProviderSyncStatus: vi.fn(),
         runProviderDiscovery,
+        runDiscoverableProvidersDiscovery: vi.fn(),
       },
     });
 
@@ -1427,6 +1428,7 @@ describe("admin route protection", () => {
         listProviderSyncStatus,
         getProviderSyncStatus: vi.fn(),
         runProviderDiscovery: vi.fn(),
+        runDiscoverableProvidersDiscovery: vi.fn(),
       },
     });
 
@@ -1462,6 +1464,7 @@ describe("admin route protection", () => {
         listProviderSyncStatus: vi.fn(),
         getProviderSyncStatus: vi.fn(),
         runProviderDiscovery,
+        runDiscoverableProvidersDiscovery: vi.fn(),
       },
     });
 

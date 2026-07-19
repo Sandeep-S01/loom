@@ -107,6 +107,91 @@ describe("model discovery service", () => {
     ).resolves.toEqual(expect.objectContaining({ status: "failed" }));
   });
 
+  it("runs discovery across all discoverable providers without using adapters directly", async () => {
+    const service = createModelDiscoveryService({
+      providerReader: createInMemoryDiscoveryProviderReader([
+        makeProvider(),
+        makeProvider({
+          id: "prv_disabled",
+          status: "disabled",
+        }),
+      ]),
+      jobRepository: createInMemoryDiscoveryJobRepository(),
+      syncStatusRepository: createInMemoryProviderSyncStatusRepository(),
+      adapterRegistry: createDiscoveryAdapterRegistry([
+        {
+          driverKey: "openrouter",
+          async discoverFreeModels() {
+            return [makeDiscoveredModel()];
+          },
+        },
+      ]),
+      catalogService: createCatalogServiceMock(),
+    });
+
+    const result = await service.runDiscoverableProvidersDiscovery({
+      triggerType: "scheduled",
+      actorUserId: null,
+    });
+
+    expect(result.attemptedCount).toBe(1);
+    expect(result.succeededCount).toBe(1);
+    expect(result.failedCount).toBe(0);
+    expect(result.jobs[0]).toEqual(
+      expect.objectContaining({
+        providerId: "prv_openrouter",
+        triggerType: "scheduled",
+        status: "succeeded",
+      }),
+    );
+  });
+
+  it("continues scheduled discovery when one provider cannot run", async () => {
+    const logger = {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    const service = createModelDiscoveryService({
+      providerReader: createInMemoryDiscoveryProviderReader([
+        makeProvider(),
+        makeProvider({
+          id: "prv_unknown_driver",
+          driverKey: "unknown",
+        }),
+      ]),
+      jobRepository: createInMemoryDiscoveryJobRepository(),
+      syncStatusRepository: createInMemoryProviderSyncStatusRepository(),
+      adapterRegistry: createDiscoveryAdapterRegistry([
+        {
+          driverKey: "openrouter",
+          async discoverFreeModels() {
+            return [makeDiscoveredModel()];
+          },
+        },
+      ]),
+      catalogService: createCatalogServiceMock(),
+      logger,
+    });
+
+    const result = await service.runDiscoverableProvidersDiscovery({
+      triggerType: "scheduled",
+      actorUserId: null,
+    });
+
+    expect(result.attemptedCount).toBe(2);
+    expect(result.succeededCount).toBe(1);
+    expect(result.failedCount).toBe(1);
+    expect(result.jobs).toHaveLength(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "model_discovery.provider_skipped",
+        providerId: "prv_unknown_driver",
+      }),
+      "Provider discovery skipped",
+    );
+  });
+
   it("rejects inactive providers and missing adapters before creating jobs", async () => {
     const jobRepository = createInMemoryDiscoveryJobRepository();
     const service = createModelDiscoveryService({
